@@ -15,34 +15,50 @@ my $log   = logger('plugin.audiomuseai');
 my $prefs = preferences('plugin.audiomuseai');
 my $cache = Slim::Utils::Cache->new('plugin_audiomuseai', 1, 1);
 
-# Per-call timeouts (seconds). CLAP / clustering can take a while.
+# Per-call timeouts (seconds). CLAP / clustering / fingerprint can take a while.
 use constant {
 	TIMEOUT_FAST  => 15,
 	TIMEOUT_QUERY => 60,
 	TIMEOUT_LONG  => 180,
 };
 
+sub _trim {
+	my $s = shift;
+	return '' unless defined $s;
+	$s =~ s/\A\s+//;
+	$s =~ s/\s+\z//;
+	return $s;
+}
+
 sub _base {
-	my $url = $prefs->get('url') || 'http://localhost:8000';
-	$url =~ s{/+$}{};
-	return $url;
+	my $u = _trim($prefs->get('url') // '');
+	$u = 'http://localhost:8000' unless length $u;
+	$u = "http://$u" unless $u =~ m{^https?://}i;
+	$u =~ s{/+$}{};
+	return $u;
 }
 
 sub _headers {
-	my $token = $prefs->get('token');
+	my $token = _trim($prefs->get('token') // '');
+	# Reject anything with embedded CR/LF: it would smuggle headers.
+	$token = '' if $token =~ /[\r\n]/;
 	my @h = ('Accept' => 'application/json');
-	push @h, 'Authorization' => "Bearer $token" if $token;
+	push @h, 'Authorization' => "Bearer $token" if length $token;
 	return @h;
 }
 
+# Decode a response body. Returns ($data, $err). Either is undef on success.
+# Recognises both 200-with-{error:...} and JSON parse failures.
 sub _decode {
 	my ($body, $url) = @_;
+	$body //= '';
 	my $data = eval { from_json($body) };
 	if ($@) {
-		$log->warn("Bad JSON from $url: $@ // body fragment: " . substr($body || '', 0, 200));
-		return (undef, "Invalid JSON from server");
+		my $frag = substr($body, 0, 200);
+		$log->warn("Bad JSON from $url: $@ // body fragment: $frag");
+		return (undef, 'Invalid JSON from server');
 	}
-	if (ref($data) eq 'HASH' && $data->{error}) {
+	if (ref($data) eq 'HASH' && defined $data->{error} && length $data->{error}) {
 		return (undef, $data->{error});
 	}
 	return ($data, undef);
@@ -56,7 +72,9 @@ sub _get {
 	if ($cache_for) {
 		if (my $hit = $cache->get("get:$url")) {
 			$log->debug("cache hit: $url");
-			return $cb_ok->($hit);
+			# Defensive copy — callers may mutate, and the cache holds
+			# a single shared reference for the cache_for window.
+			return $cb_ok->(_clone($hit));
 		}
 	}
 
@@ -64,14 +82,18 @@ sub _get {
 
 	my $http = Slim::Networking::SimpleAsyncHTTP->new(
 		sub {
-			my $http = shift;
-			my ($data, $err) = _decode($http->content, $url);
-			return $cb_err->($err) if $err && $cb_err;
-			$cache->set("get:$url", $data, $cache_for) if $cache_for && !$err;
-			$cb_ok->($data) if $cb_ok && !$err;
+			my $resp = shift;
+			my ($data, $err) = _decode($resp->content, $url);
+			if ($err) {
+				return $cb_err->($err) if $cb_err;
+				return;
+			}
+			$cache->set("get:$url", $data, $cache_for) if $cache_for;
+			$cb_ok->($data) if $cb_ok;
 		},
 		sub {
-			my ($http, $err) = @_;
+			my (undef, $err) = @_;
+			$err //= 'unknown HTTP error';
 			$log->warn("HTTP error $url: $err");
 			$cb_err->($err) if $cb_err;
 		},
@@ -86,16 +108,26 @@ sub _post {
 	$timeout ||= TIMEOUT_QUERY;
 	$log->debug("POST $url (timeout ${timeout}s)");
 
-	my $body = to_json($payload || {});
+	my $body = eval { to_json($payload || {}) };
+	if ($@) {
+		$log->warn("Failed to encode payload for $url: $@");
+		$cb_err->('Failed to serialise request body') if $cb_err;
+		return;
+	}
+
 	my $http = Slim::Networking::SimpleAsyncHTTP->new(
 		sub {
-			my $http = shift;
-			my ($data, $err) = _decode($http->content, $url);
-			return $cb_err->($err) if $err && $cb_err;
-			$cb_ok->($data) if $cb_ok && !$err;
+			my $resp = shift;
+			my ($data, $err) = _decode($resp->content, $url);
+			if ($err) {
+				return $cb_err->($err) if $cb_err;
+				return;
+			}
+			$cb_ok->($data) if $cb_ok;
 		},
 		sub {
-			my ($http, $err) = @_;
+			my (undef, $err) = @_;
+			$err //= 'unknown HTTP error';
 			$log->warn("HTTP error $url: $err");
 			$cb_err->($err) if $cb_err;
 		},
@@ -104,12 +136,20 @@ sub _post {
 	$http->post($url, _headers(), 'Content-Type' => 'application/json', $body);
 }
 
+# Shallow-deep clone via JSON round-trip — safe because all our cached
+# payloads are JSON-shaped (no blessed objects, no code refs).
+sub _clone {
+	my $data = shift;
+	return $data unless ref $data;
+	return eval { from_json(to_json($data)) } // $data;
+}
+
 # ---------- public API surface ----------
 
 sub ping {
 	my ($cb_ok, $cb_err) = @_;
-	# Reuse active_tasks as a liveness probe; cache 5s so the settings page
-	# and startup health check don't thrash it.
+	# Reuse active_tasks as a liveness probe; cache 5s so the settings
+	# page Test Connection and startup health check don't thrash it.
 	_get('/api/active_tasks', $cb_ok, $cb_err, TIMEOUT_FAST, 5);
 }
 
@@ -147,8 +187,8 @@ sub similar_artists {
 sub search_tracks {
 	my ($artist, $cb_ok, $cb_err) = @_;
 	my $path = '/api/search_tracks?artist=' . uri_escape_utf8($artist);
-	# Cache search results for 60s — same artist tends to be searched
-	# repeatedly during alchemy / find-path flows.
+	# Cache search results for 60s — same artist often searched twice
+	# during alchemy / find-path flows.
 	_get($path, $cb_ok, $cb_err, TIMEOUT_QUERY, 60);
 }
 
@@ -183,7 +223,7 @@ sub alchemy {
 	}, $cb_ok, $cb_err, TIMEOUT_LONG);
 }
 
-sub start_analysis  {
+sub start_analysis {
 	my ($cb_ok, $cb_err) = @_;
 	_post('/api/analysis/start', {}, $cb_ok, $cb_err, TIMEOUT_FAST);
 }

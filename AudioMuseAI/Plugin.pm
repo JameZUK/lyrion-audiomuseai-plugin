@@ -13,6 +13,19 @@ use Slim::Utils::Timers;
 
 use Plugins::AudioMuseAI::API;
 
+use constant {
+	VERSION             => '0.2.4',
+	HEALTHCHECK_DELAY   => 5,
+	# Cap search-result menus to keep the UI navigable on hardware
+	# controllers; AudioMuse can return hundreds of tracks for prolific
+	# artists.
+	MAX_PICK_RESULTS    => 50,
+	# Default count clamped to this range to avoid tiny / huge requests.
+	COUNT_MIN           => 5,
+	COUNT_MAX           => 100,
+	FINDPATH_MAX_STEPS  => 12,
+};
+
 my $log = Slim::Utils::Log->addLogCategory({
 	'category'     => 'plugin.audiomuseai',
 	'defaultLevel' => 'INFO',
@@ -20,6 +33,9 @@ my $log = Slim::Utils::Log->addLogCategory({
 });
 
 my $prefs = preferences('plugin.audiomuseai');
+
+# Tracks we registered timers for, so shutdownPlugin can clean up.
+my @_timers;
 
 sub initPlugin {
 	my $class = shift;
@@ -31,14 +47,15 @@ sub initPlugin {
 		dstm_enabled  => 0,
 	});
 
+	# One-time: normalize any pre-existing values that may have come in
+	# with whitespace or missing scheme.
+	if (my $u = $prefs->get('url'))   { $prefs->set('url',   _normalizeUrl($u)); }
+	if (my $t = $prefs->get('token')) { $prefs->set('token', _trim($t));        }
+
 	if (main::WEBUI) {
 		require Plugins::AudioMuseAI::Settings;
 		Plugins::AudioMuseAI::Settings->new;
 	}
-
-	# CLI dispatch table — every menu action lands here. The middle field
-	# in the dispatch tuple ([needsClient, needsArrayResp, isQuery, sub])
-	# matters: 1 means a player is required for that command.
 
 	# Menu builders ----------------------------------------------------------
 	Slim::Control::Request::addDispatch(['audiomuseai', 'menu'],
@@ -124,27 +141,35 @@ sub initPlugin {
 	});
 	Slim::Control::Jive::registerPluginMenu(\@items, 'myMusic');
 
-	# Listen for new-song events so DSTM-style hooks know what to extend from.
 	Slim::Control::Request::subscribe(\&_onNewSong,
 		[['playlist'], ['newsong']]);
 
 	$class->SUPER::initPlugin(@_);
-	$log->info("AudioMuse-AI plugin v0.2.0 initialised");
+	$log->info('AudioMuse-AI plugin v' . VERSION . ' initialised');
 
-	# Startup health check (deferred a few seconds so SimpleAsyncHTTP is up).
-	Slim::Utils::Timers::setTimer(undef, time() + 5, \&_healthCheck);
+	# Startup health check (deferred so SimpleAsyncHTTP is fully up).
+	my $when = time() + HEALTHCHECK_DELAY;
+	Slim::Utils::Timers::setTimer(undef, $when, \&_healthCheck);
+	push @_timers, [undef, $when, \&_healthCheck];
 }
 
 sub shutdownPlugin {
 	Slim::Control::Request::unsubscribe(\&_onNewSong);
+	for my $t (@_timers) {
+		Slim::Utils::Timers::killSpecific(@$t);
+	}
+	@_timers = ();
 }
 
 sub _healthCheck {
 	Plugins::AudioMuseAI::API::ping(
-		sub { $log->info("AudioMuse-AI reachable: " . ($prefs->get('url') || 'unset')); },
 		sub {
-			my $err = shift;
-			$log->warn("AudioMuse-AI not reachable at " . ($prefs->get('url') || 'unset') . ": $err");
+			$log->info('AudioMuse-AI reachable: ' . ($prefs->get('url') || 'unset'));
+		},
+		sub {
+			my $err = shift // 'unknown';
+			$log->warn('AudioMuse-AI not reachable at '
+				. ($prefs->get('url') || 'unset') . ": $err");
 		},
 	);
 }
@@ -228,7 +253,7 @@ sub _menuMood {
 
 sub _menuAlchemy {
 	my $request = shift;
-	my @menu = (
+	_emit($request, [
 		_actionItem('PLUGIN_AUDIOMUSEAI_ALCHEMY_SHOW',
 			['audiomuseai', 'alchemy_show'], 1),
 		_actionItem('PLUGIN_AUDIOMUSEAI_ALCHEMY_ADD_NOW',
@@ -239,61 +264,42 @@ sub _menuAlchemy {
 			['audiomuseai', 'alchemy_reset'], 1),
 		_actionItem('PLUGIN_AUDIOMUSEAI_ALCHEMY_GENERATE',
 			['audiomuseai', 'alchemy_generate'], 1),
-	);
-	_emit($request, \@menu);
+	]);
 }
 
 sub _menuFindPath {
 	my $request = shift;
-	my @menu = (
+	_emit($request, [
 		_textInputItem('PLUGIN_AUDIOMUSEAI_FINDPATH_FROM_NOW',
 			'PLUGIN_AUDIOMUSEAI_FINDPATH_PROMPT',
 			['audiomuseai', 'findpath_search'], 'artist'),
-	);
-	_emit($request, \@menu);
+	]);
 }
 
 sub _menuDynamic {
 	my $request = shift;
-	my @menu = (
+	_emit($request, [
 		_actionItem('PLUGIN_AUDIOMUSEAI_DYNAMIC_SIMILAR',
 			['audiomuseai', 'dyn_similar'], 1),
 		_actionItem('PLUGIN_AUDIOMUSEAI_DYNAMIC_FINGERPRINT',
 			['audiomuseai', 'dyn_fingerprint'], 1),
 		_actionItem('PLUGIN_AUDIOMUSEAI_DYNAMIC_STOP',
 			['audiomuseai', 'dyn_stop'], 1),
-	);
-	_emit($request, \@menu);
+	]);
 }
 
 sub _menuStatus {
 	my $request = shift;
-	my @menu = (
+	_emit($request, [
 		_actionItem('PLUGIN_AUDIOMUSEAI_STATUS_ACTIVE',
 			['audiomuseai', 'status_active'], 0),
 		_actionItem('PLUGIN_AUDIOMUSEAI_STATUS_LAST',
 			['audiomuseai', 'status_last'], 0),
-		# Confirmations: each "trigger" is a sub-menu that asks Yes/No.
-		{
-			text    => string('PLUGIN_AUDIOMUSEAI_STATUS_RUN_ANALYSIS'),
-			actions => {
-				go => {
-					cmd    => ['audiomuseai', 'run_analysis'],
-					player => 0,
-				},
-			},
-		},
-		{
-			text    => string('PLUGIN_AUDIOMUSEAI_STATUS_RUN_CLUSTERING'),
-			actions => {
-				go => {
-					cmd    => ['audiomuseai', 'run_clustering'],
-					player => 0,
-				},
-			},
-		},
-	);
-	_emit($request, \@menu);
+		_actionItem('PLUGIN_AUDIOMUSEAI_STATUS_RUN_ANALYSIS',
+			['audiomuseai', 'run_analysis'], 0),
+		_actionItem('PLUGIN_AUDIOMUSEAI_STATUS_RUN_CLUSTERING',
+			['audiomuseai', 'run_clustering'], 0),
+	]);
 }
 
 # ===========================================================================
@@ -307,11 +313,10 @@ sub _similarNow {
 	unless ($song && $song->id) {
 		return _notify($request, string('PLUGIN_AUDIOMUSEAI_NOTHING_PLAYING'));
 	}
-	$log->info("similar_now: track=" . $song->id . " client=" . $client->id);
+	$log->info('similar_now: track=' . $song->id . ' client=' . $client->id);
 	$request->setStatusProcessing;
 	Plugins::AudioMuseAI::API::similar_tracks(
-		$song->id,
-		_count(),
+		$song->id, _count(),
 		sub { _queueResults($request, $client, shift, 0) },
 		sub { _notifyError($request, shift) },
 	);
@@ -320,8 +325,9 @@ sub _similarNow {
 sub _similarSongSearch {
 	my $request = shift;
 	my $client  = $request->client or return $request->setStatusBadParams;
-	my $artist  = $request->getParam('artist');
-	return _notify($request, "Empty artist") unless $artist;
+	my $artist  = _trim($request->getParam('artist') // '');
+	return _notify($request, string('PLUGIN_AUDIOMUSEAI_EMPTY_INPUT')) unless length $artist;
+
 	$request->setStatusProcessing;
 	Plugins::AudioMuseAI::API::search_tracks(
 		$artist,
@@ -331,24 +337,7 @@ sub _similarSongSearch {
 				return _notify($request,
 					string('PLUGIN_AUDIOMUSEAI_NO_TRACKS_FOR_ARTIST'));
 			}
-			# Render the result list as a Jive menu of tappable tracks.
-			my @items;
-			for my $t (@$tracks) {
-				my $tid = $t->{item_id} // $t->{id} // next;
-				my $label = ($t->{title} // '?') . ' — ' . ($t->{author} // $t->{album_artist} // '?');
-				push @items, {
-					text    => $label,
-					actions => {
-						go => {
-							cmd    => ['audiomuseai', 'similar_track'],
-							player => 1,
-							params => { track_id => "$tid" },
-						},
-					},
-					nextWindow => 'refresh',
-				};
-			}
-			_emit($request, \@items);
+			_emit($request, _tracksAsPickMenu($tracks, ['audiomuseai', 'similar_track'], 'track_id'));
 		},
 		sub { _notifyError($request, shift) },
 	);
@@ -358,7 +347,7 @@ sub _similarTrack {
 	my $request = shift;
 	my $client  = $request->client or return $request->setStatusBadParams;
 	my $tid     = $request->getParam('track_id');
-	return $request->setStatusBadParams unless $tid;
+	return $request->setStatusBadParams unless defined $tid && length $tid;
 	$request->setStatusProcessing;
 	Plugins::AudioMuseAI::API::similar_tracks(
 		$tid, _count(),
@@ -370,7 +359,9 @@ sub _similarTrack {
 sub _similarArtist {
 	my $request = shift;
 	my $client  = $request->client or return $request->setStatusBadParams;
-	my $artist  = $request->getParam('artist') or return _notify($request, "Empty artist");
+	my $artist  = _trim($request->getParam('artist') // '');
+	return _notify($request, string('PLUGIN_AUDIOMUSEAI_EMPTY_INPUT')) unless length $artist;
+
 	$request->setStatusProcessing;
 	Plugins::AudioMuseAI::API::similar_artists(
 		$artist, 5,
@@ -380,9 +371,6 @@ sub _similarArtist {
 			unless (@arts) {
 				return _notify($request, string('PLUGIN_AUDIOMUSEAI_NO_RESULTS'));
 			}
-			# Pull tracks from the top match. Could be expanded to
-			# show the artist list and let user pick, but keeping flat
-			# for v0.2 since the artist-similarity list is usually short.
 			my $first = $arts[0]->{artist} // $arts[0]->{name} // $artist;
 			Plugins::AudioMuseAI::API::search_tracks(
 				$first,
@@ -408,7 +396,8 @@ sub _sonicFingerprint {
 sub _instantPlaylist {
 	my $request = shift;
 	my $client  = $request->client or return $request->setStatusBadParams;
-	my $prompt  = $request->getParam('prompt') or return _notify($request, "Empty prompt");
+	my $prompt  = _trim($request->getParam('prompt') // '');
+	return _notify($request, string('PLUGIN_AUDIOMUSEAI_EMPTY_INPUT')) unless length $prompt;
 	$log->info("instant playlist: $prompt");
 	$request->setStatusProcessing;
 	Plugins::AudioMuseAI::API::clap_search(
@@ -421,7 +410,8 @@ sub _instantPlaylist {
 sub _moodPlaylist {
 	my $request = shift;
 	my $client  = $request->client or return $request->setStatusBadParams;
-	my $prompt  = $request->getParam('prompt') or return _notify($request, "Empty prompt");
+	my $prompt  = _trim($request->getParam('prompt') // '');
+	return _notify($request, string('PLUGIN_AUDIOMUSEAI_EMPTY_INPUT')) unless length $prompt;
 	$log->info("mood playlist: $prompt");
 	$request->setStatusProcessing;
 	Plugins::AudioMuseAI::API::clap_search(
@@ -433,32 +423,25 @@ sub _moodPlaylist {
 
 # ----- Alchemy --------------------------------------------------------------
 
-sub _alchemyAddNow {
-	my $request = shift;
-	_alchemyAddTo($request, 'add');
-}
-
-sub _alchemySubNow {
-	my $request = shift;
-	_alchemyAddTo($request, 'sub');
-}
+sub _alchemyAddNow { _alchemyAddTo($_[0], 'add'); }
+sub _alchemySubNow { _alchemyAddTo($_[0], 'sub'); }
 
 sub _alchemyAddTo {
 	my ($request, $bucket) = @_;
 	my $client = $request->client or return $request->setStatusBadParams;
-	my $song   = Slim::Player::Playlist::song($client) or
+	my $song   = Slim::Player::Playlist::song($client);
+	unless ($song && $song->id) {
 		return _notify($request, string('PLUGIN_AUDIOMUSEAI_NOTHING_PLAYING'));
-	my $tid    = $song->id;
+	}
+	my $tid = "" . $song->id;
 
-	my $key   = "alchemy_$bucket";
-	my $list  = $prefs->client($client)->get($key) || [];
-	# Ensure ARRAYref (LMS prefs sometimes round-trip as scalars when empty).
-	$list = [] unless ref($list) eq 'ARRAY';
-	push @$list, "$tid" unless grep { $_ eq "$tid" } @$list;
+	my $key  = "alchemy_$bucket";
+	my $list = _alchemyList($client, $key);
+	push @$list, $tid unless grep { $_ eq $tid } @$list;
 	$prefs->client($client)->set($key, $list);
-	_notify($request, sprintf("ADDED to %s: %s — %s (%d in list)",
+	_notify($request, sprintf('ADDED to %s: %s — %s (%d in list)',
 		uc($bucket),
-		$song->title // '?',
+		$song->title      // '?',
 		$song->artistName // '?',
 		scalar @$list));
 }
@@ -466,16 +449,16 @@ sub _alchemyAddTo {
 sub _alchemyShow {
 	my $request = shift;
 	my $client  = $request->client or return $request->setStatusBadParams;
-	my $a = $prefs->client($client)->get('alchemy_add') || [];
-	my $s = $prefs->client($client)->get('alchemy_sub') || [];
-	$a = [] unless ref($a) eq 'ARRAY';
-	$s = [] unless ref($s) eq 'ARRAY';
+	my $a = _alchemyList($client, 'alchemy_add');
+	my $s = _alchemyList($client, 'alchemy_sub');
 	if (!@$a && !@$s) {
 		return _notify($request, string('PLUGIN_AUDIOMUSEAI_ALCHEMY_EMPTY'));
 	}
+	# Cap displayed IDs in the summary line — long lists get truncated
+	# with a "+N more" tail rather than rendering hundreds of IDs.
 	_notifyLines($request, [
-		sprintf("ADD (%d): %s", scalar @$a, join(',', @$a) || '—'),
-		sprintf("SUBTRACT (%d): %s", scalar @$s, join(',', @$s) || '—'),
+		_alchemyLine('ADD',      $a),
+		_alchemyLine('SUBTRACT', $s),
 	]);
 }
 
@@ -484,16 +467,14 @@ sub _alchemyReset {
 	my $client  = $request->client or return $request->setStatusBadParams;
 	$prefs->client($client)->set('alchemy_add', []);
 	$prefs->client($client)->set('alchemy_sub', []);
-	_notify($request, "Alchemy selection cleared.");
+	_notify($request, string('PLUGIN_AUDIOMUSEAI_ALCHEMY_CLEARED'));
 }
 
 sub _alchemyGenerate {
 	my $request = shift;
 	my $client  = $request->client or return $request->setStatusBadParams;
-	my $a = $prefs->client($client)->get('alchemy_add') || [];
-	my $s = $prefs->client($client)->get('alchemy_sub') || [];
-	$a = [] unless ref($a) eq 'ARRAY';
-	$s = [] unless ref($s) eq 'ARRAY';
+	my $a = _alchemyList($client, 'alchemy_add');
+	my $s = _alchemyList($client, 'alchemy_sub');
 	unless (@$a || @$s) {
 		return _notify($request, string('PLUGIN_AUDIOMUSEAI_ALCHEMY_EMPTY'));
 	}
@@ -505,6 +486,23 @@ sub _alchemyGenerate {
 	);
 }
 
+sub _alchemyList {
+	my ($client, $key) = @_;
+	my $list = $prefs->client($client)->get($key);
+	$list = [] unless ref($list) eq 'ARRAY';
+	return $list;
+}
+
+sub _alchemyLine {
+	my ($label, $list) = @_;
+	my $count = scalar @$list;
+	return sprintf('%s (%d): —', $label, $count) unless $count;
+	my $shown = $count > 8 ? 8 : $count;
+	my $body  = join(',', @$list[0 .. $shown - 1]);
+	$body .= " (+@{[ $count - $shown ]} more)" if $count > $shown;
+	return sprintf('%s (%d): %s', $label, $count, $body);
+}
+
 # ----- Find Path ------------------------------------------------------------
 
 sub _findPathSearch {
@@ -514,7 +512,9 @@ sub _findPathSearch {
 	unless ($song && $song->id) {
 		return _notify($request, string('PLUGIN_AUDIOMUSEAI_FINDPATH_NO_START'));
 	}
-	my $artist = $request->getParam('artist') or return _notify($request, "Empty artist");
+	my $artist = _trim($request->getParam('artist') // '');
+	return _notify($request, string('PLUGIN_AUDIOMUSEAI_EMPTY_INPUT')) unless length $artist;
+
 	my $start_id = $song->id;
 	$request->setStatusProcessing;
 	Plugins::AudioMuseAI::API::search_tracks(
@@ -525,26 +525,12 @@ sub _findPathSearch {
 				return _notify($request,
 					string('PLUGIN_AUDIOMUSEAI_NO_TRACKS_FOR_ARTIST'));
 			}
-			my @items;
-			for my $t (@$tracks) {
-				my $tid   = $t->{item_id} // $t->{id} // next;
-				my $label = ($t->{title} // '?') . ' — ' . ($t->{author} // '?');
-				push @items, {
-					text    => $label,
-					actions => {
-						go => {
-							cmd    => ['audiomuseai', 'findpath_to'],
-							player => 1,
-							params => {
-								start_id => "$start_id",
-								end_id   => "$tid",
-							},
-						},
-					},
-					nextWindow => 'refresh',
-				};
-			}
-			_emit($request, \@items);
+			_emit($request, _tracksAsPickMenu(
+				$tracks,
+				['audiomuseai', 'findpath_to'],
+				'end_id',
+				{ start_id => "$start_id" },
+			));
 		},
 		sub { _notifyError($request, shift) },
 	);
@@ -553,12 +539,15 @@ sub _findPathSearch {
 sub _findPathExecute {
 	my $request = shift;
 	my $client  = $request->client or return $request->setStatusBadParams;
-	my $start   = $request->getParam('start_id') or return $request->setStatusBadParams;
-	my $end     = $request->getParam('end_id')   or return $request->setStatusBadParams;
+	my $start   = $request->getParam('start_id');
+	my $end     = $request->getParam('end_id');
+	unless (defined $start && length $start && defined $end && length $end) {
+		return $request->setStatusBadParams;
+	}
 	$log->info("findpath: $start -> $end");
 	$request->setStatusProcessing;
 	Plugins::AudioMuseAI::API::find_path(
-		$start, $end, 12,
+		$start, $end, FINDPATH_MAX_STEPS,
 		sub { _queueResults($request, $client, shift, 1) },
 		sub { _notifyError($request, shift) },
 	);
@@ -586,7 +575,7 @@ sub _dynamicStop {
 	my $request = shift;
 	my $client  = $request->client or return $request->setStatusBadParams;
 	$prefs->client($client)->set('dstm_active', '');
-	$log->info("DSTM mode cleared for " . $client->id);
+	$log->info('DSTM mode cleared for ' . $client->id);
 	_notify($request, string('PLUGIN_AUDIOMUSEAI_DSTM_STOPPED'));
 }
 
@@ -615,68 +604,41 @@ sub _statusFormat {
 	$label ||= 'TASK';
 
 	unless (ref($data) eq 'HASH' && %$data) {
-		return _notifyLines($request, [
-			"[$label] (no task)",
-		]);
+		return _notifyLines($request, ["[$label] (no task)"]);
 	}
 
 	my $details = $data->{details} || {};
 	$details = {} unless ref($details) eq 'HASH';
 
 	my @lines = ("[$label]");
+	push @lines, $details->{status_message} if $details->{status_message};
 
-	# Most informative single line first.
-	if (my $msg = $details->{status_message}) {
-		push @lines, "$msg";
-	}
-
-	# Status + task type as a single line.
 	my @hdr;
-	push @hdr, "status: $data->{status}"        if defined $data->{status};
-	push @hdr, "type: $data->{task_type}"       if defined $data->{task_type};
+	push @hdr, "status: $data->{status}"  if defined $data->{status};
+	push @hdr, "type: $data->{task_type}" if defined $data->{task_type};
 	push @lines, join(' · ', @hdr) if @hdr;
 
-	if (defined $data->{progress}) {
-		push @lines, "progress: $data->{progress}%";
-	}
+	push @lines, "progress: $data->{progress}%"             if defined $data->{progress};
+	push @lines, 'running: ' . _fmtDuration($data->{running_time_seconds})
+		if defined $data->{running_time_seconds};
+	push @lines, "task_id: $data->{task_id}"                if defined $data->{task_id};
 
-	if (defined $data->{running_time_seconds}) {
-		push @lines, 'running: ' . _fmtDuration($data->{running_time_seconds});
-	}
-
-	if (defined $data->{task_id}) {
-		push @lines, "task_id: $data->{task_id}";
-	}
-
-	# Selected detail fields likely to be informative.
 	for my $k (qw(albums_skipped albums_to_process)) {
 		push @lines, "$k: $details->{$k}"
 			if defined $details->{$k} && !ref($details->{$k});
 	}
-
 	if (ref($details->{log}) eq 'ARRAY' && @{$details->{log}}) {
 		push @lines, 'last log: ' . $details->{log}[-1];
 	}
-	if ($details->{log_storage_info}) {
-		push @lines, $details->{log_storage_info};
-	}
+	push @lines, $details->{log_storage_info} if $details->{log_storage_info};
 
 	_notifyLines($request, \@lines);
 }
 
-sub _fmtDuration {
-	my $sec = int(shift // 0);
-	my $h = int($sec / 3600);
-	my $m = int(($sec % 3600) / 60);
-	my $s = $sec % 60;
-	return sprintf('%dh %02dm %02ds', $h, $m, $s) if $h;
-	return sprintf('%dm %02ds', $m, $s)           if $m;
-	return sprintf('%ds', $s);
-}
-
 sub _runAnalysis {
 	my $request = shift;
-	$log->info("triggering /api/analysis/start");
+	$log->info('triggering /api/analysis/start');
+	$request->setStatusProcessing;
 	Plugins::AudioMuseAI::API::start_analysis(
 		sub { _notify($request, string('PLUGIN_AUDIOMUSEAI_STATUS_TRIGGERED')); },
 		sub { _notifyError($request, shift); },
@@ -685,7 +647,8 @@ sub _runAnalysis {
 
 sub _runClustering {
 	my $request = shift;
-	$log->info("triggering /api/clustering/start");
+	$log->info('triggering /api/clustering/start');
+	$request->setStatusProcessing;
 	Plugins::AudioMuseAI::API::start_clustering(
 		sub { _notify($request, string('PLUGIN_AUDIOMUSEAI_STATUS_TRIGGERED')); },
 		sub { _notifyError($request, shift); },
@@ -705,7 +668,31 @@ sub _openMap {
 # Helpers
 # ===========================================================================
 
-sub _count { return $prefs->get('default_count') || 25; }
+sub _trim {
+	my $s = shift;
+	return '' unless defined $s;
+	$s =~ s/\A\s+//;
+	$s =~ s/\s+\z//;
+	return $s;
+}
+
+# Validate / normalize the URL pref. Strips trailing slashes, adds http://
+# when no scheme is present, rejects nothing (we'd rather hit the API and
+# surface its error than silently refuse to call).
+sub _normalizeUrl {
+	my $u = _trim(shift // '');
+	return $u unless length $u;
+	$u = "http://$u" unless $u =~ m{^https?://}i;
+	$u =~ s{/+$}{};
+	return $u;
+}
+
+sub _count {
+	my $n = $prefs->get('default_count') // 25;
+	$n = COUNT_MIN if $n < COUNT_MIN;
+	$n = COUNT_MAX if $n > COUNT_MAX;
+	return $n;
+}
 
 sub _actionItem {
 	my ($strKey, $cmd, $needsPlayer) = @_;
@@ -755,6 +742,42 @@ sub _textInputItem {
 	};
 }
 
+# Build a Jive menu of tappable tracks from an AudioMuse search-result list.
+# Each item dispatches to $cmd with the track's id put into $idParamName.
+# Optional $extraParams are merged into every item (e.g. start_id for findpath).
+sub _tracksAsPickMenu {
+	my ($tracks, $cmd, $idParamName, $extraParams) = @_;
+	$extraParams ||= {};
+	my @items;
+	my $cap = MAX_PICK_RESULTS;
+	for my $t (@$tracks) {
+		last if @items >= $cap;
+		my $tid = $t->{item_id} // $t->{id};
+		next unless defined $tid && length $tid;
+		my $title  = _trim($t->{title}  // '');
+		my $author = _trim($t->{author} // $t->{album_artist} // '');
+		my $label  = $title || '?';
+		$label .= ' — ' . $author if length $author;
+		push @items, {
+			text    => $label,
+			actions => {
+				go => {
+					cmd    => $cmd,
+					player => 1,
+					params => { %$extraParams, $idParamName => "$tid" },
+				},
+			},
+			nextWindow => 'refresh',
+		};
+	}
+	if (@$tracks > $cap) {
+		push @items, {
+			text => sprintf('… (%d more not shown)', @$tracks - $cap),
+		};
+	}
+	return \@items;
+}
+
 sub _emit {
 	my ($request, $menu) = @_;
 	$menu ||= [];
@@ -766,33 +789,43 @@ sub _emit {
 
 sub _notify {
 	my ($request, $msg) = @_;
-	_emit($request, [{ text => $msg }]);
+	_emit($request, [{ text => $msg // '' }]);
 }
 
-# Emit each line as its own menu item — Jive controllers typically render
-# a menu item's `text` as a single line, so embedded \n in _notify() get
-# truncated or stripped. Use this when there are multiple status lines.
 sub _notifyLines {
 	my ($request, $lines) = @_;
 	$lines ||= [];
-	$lines = [ 'No status returned.' ] unless @$lines;
-	_emit($request, [ map { { text => $_ } } @$lines ]);
+	$lines = ['No status returned.'] unless @$lines;
+	_emit($request, [ map { { text => "$_" } } @$lines ]);
 }
 
 sub _notifyError {
 	my ($request, $err) = @_;
-	$err ||= 'Unknown error';
+	$err //= 'Unknown error';
 	if ($err =~ /\b409\b/ || $err =~ /conflict/i) {
 		_notify($request, string('PLUGIN_AUDIOMUSEAI_BUSY'));
-	} elsif ($err =~ /unavailable/i || $err =~ /\b503\b/) {
+	} elsif ($err =~ /\b503\b/ || $err =~ /unavailable/i) {
 		_notify($request, string('PLUGIN_AUDIOMUSEAI_UNAVAILABLE'));
 	} elsif ($err =~ /\b401\b|\b403\b/ || $err =~ /unauthor/i || $err =~ /forbidden/i) {
-		_notify($request, "AudioMuse-AI auth failed: check API token in plugin settings.");
+		_notify($request, string('PLUGIN_AUDIOMUSEAI_AUTH_FAIL'));
 	} elsif ($err =~ /timeout/i) {
-		_notify($request, "AudioMuse-AI timed out. The server may be overloaded.");
+		_notify($request, string('PLUGIN_AUDIOMUSEAI_TIMEOUT'));
+	} elsif ($err =~ /\b(?:5\d\d)\b/) {
+		_notify($request, string('PLUGIN_AUDIOMUSEAI_SERVER_ERROR') . " ($err)");
 	} else {
-		_notify($request, "AudioMuse-AI error: $err");
+		_notify($request, string('PLUGIN_AUDIOMUSEAI_GENERIC_ERROR') . " $err");
 	}
+}
+
+sub _fmtDuration {
+	my $sec = int(shift // 0);
+	$sec = 0 if $sec < 0;
+	my $h = int($sec / 3600);
+	my $m = int(($sec % 3600) / 60);
+	my $s = $sec % 60;
+	return sprintf('%dh %02dm %02ds', $h, $m, $s) if $h;
+	return sprintf('%dm %02ds', $m, $s)           if $m;
+	return sprintf('%ds', $s);
 }
 
 sub _queueResults {
@@ -800,12 +833,15 @@ sub _queueResults {
 	unless (ref($data) eq 'ARRAY' && @$data) {
 		return _notify($request, string('PLUGIN_AUDIOMUSEAI_NO_RESULTS'));
 	}
-	my @ids = grep { defined && length } map { $_->{item_id} // $_->{id} } @$data;
+	# Filter: defined, non-empty, and only digits (Lyrion track IDs are
+	# always integers; anything else would crash playlistcontrol).
+	my @ids = grep { defined && /\A\d+\z/ }
+		map { $_->{item_id} // $_->{id} } @$data;
 	unless (@ids) {
 		return _notify($request, string('PLUGIN_AUDIOMUSEAI_NO_RESULTS'));
 	}
 	my $cmd = $loadFresh ? 'load' : 'add';
-	$log->info(sprintf("queueing %d tracks (%s) on %s",
+	$log->info(sprintf('queueing %d tracks (%s) on %s',
 		scalar @ids, $cmd, $client->id));
 	Slim::Control::Request::executeRequest(
 		$client,
@@ -814,7 +850,7 @@ sub _queueResults {
 	_notify($request, string('PLUGIN_AUDIOMUSEAI_QUEUED'));
 }
 
-# Track newly playing songs and auto-extend if a DSTM mode is active.
+# Subscriber: track newly playing songs and auto-extend if a DSTM mode is active.
 sub _onNewSong {
 	my $request = shift;
 	my $client  = $request->client or return;
@@ -829,28 +865,29 @@ sub _onNewSong {
 
 	$log->info("DSTM auto-extend mode=$mode remaining=$remaining client=" . $client->id);
 
-	my $cb_ok  = sub {
+	my $cb_ok = sub {
 		my $data = shift;
 		return unless ref($data) eq 'ARRAY' && @$data;
-		my @ids = grep { defined && length } map { $_->{item_id} // $_->{id} } @$data;
+		my @ids = grep { defined && /\A\d+\z/ }
+			map { $_->{item_id} // $_->{id} } @$data;
 		return unless @ids;
 		Slim::Control::Request::executeRequest(
 			$client,
 			['playlistcontrol', 'cmd:add', 'track_id:' . join(',', @ids)]
 		);
 	};
-	my $cb_err = sub { $log->warn("DSTM extend failed: " . shift) };
+	my $cb_err = sub { $log->warn('DSTM extend failed: ' . (shift // 'unknown')) };
 
 	if ($mode eq 'similar') {
 		Plugins::AudioMuseAI::API::similar_tracks(
 			$song->id, 10, $cb_ok, $cb_err);
 	} elsif ($mode eq 'fingerprint') {
 		Plugins::AudioMuseAI::API::sonic_fingerprint(10, $cb_ok, $cb_err);
-	} elsif ($mode eq 'alchemy') {
-		my $a = $prefs->client($client)->get('alchemy_add') || [];
-		my $s = $prefs->client($client)->get('alchemy_sub') || [];
-		Plugins::AudioMuseAI::API::alchemy($a, $s, 10, $cb_ok, $cb_err);
 	}
+	# Note: alchemy mode is intentionally not auto-extended — alchemy's
+	# meaning is "blend these tracks", not "stream of similar to the
+	# current track", so re-extending it on every new-song event
+	# wouldn't carry the user's intent forward.
 }
 
 1;

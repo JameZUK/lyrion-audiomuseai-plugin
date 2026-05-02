@@ -8,25 +8,25 @@ PLUGIN_AUDIOMUSEAI_URL
 	EN	AudioMuse-AI server URL
 
 PLUGIN_AUDIOMUSEAI_URL_DESC
-	EN	Base URL of your AudioMuse-AI Flask container (e.g. http://localhost:8000 or http://my-host:8000). Do not include /api.
+	EN	Base URL of your AudioMuse-AI Flask container (e.g. http://localhost:8000 or http://my-host:8000). Do not include /api. Will auto-prefix http:// if you omit the scheme.
 
 PLUGIN_AUDIOMUSEAI_TOKEN
 	EN	API token
 
 PLUGIN_AUDIOMUSEAI_TOKEN_DESC
-	EN	Bearer token for AudioMuse-AI. Generate one in the AudioMuse web UI under Administration. Leave blank if AUTH_ENABLED is false on the server.
+	EN	Bearer token for AudioMuse-AI. Generate one in the AudioMuse web UI under Administration. Leave blank if AUTH_ENABLED is false on the server. Surrounding whitespace is trimmed automatically.
 
 PLUGIN_AUDIOMUSEAI_DEFAULT_COUNT
 	EN	Default number of tracks to return
 
 PLUGIN_AUDIOMUSEAI_DEFAULT_COUNT_DESC
-	EN	How many tracks AudioMuse should return for similarity, fingerprint, instant-playlist, alchemy, and mood queries. Range 5–100.
+	EN	How many tracks AudioMuse should return for similarity, fingerprint, instant-playlist, alchemy, and mood queries. Range 5–100, clamped automatically.
 
 PLUGIN_AUDIOMUSEAI_DSTM
 	EN	Auto-extend the queue (Don't Stop The Music)
 
 PLUGIN_AUDIOMUSEAI_DSTM_DESC
-	EN	When the player's queue runs low, automatically add more similar / fingerprint / alchemy tracks based on the most recently activated dynamic mode for that player. Use the Dynamic Playlists submenu to start a mode; "Stop auto-extend" clears it.
+	EN	When the player's queue runs low, automatically add more similar / fingerprint tracks based on the most recently activated dynamic mode for that player. Use the Dynamic Playlists submenu to start a mode; "Stop auto-extend" clears it.
 
 PLUGIN_AUDIOMUSEAI_TEST_CONNECTION
 	EN	Test connection
@@ -115,6 +115,9 @@ PLUGIN_AUDIOMUSEAI_ALCHEMY_GENERATE
 PLUGIN_AUDIOMUSEAI_ALCHEMY_EMPTY
 	EN	Selection empty. Add tracks via "Add current track to ADD/SUBTRACT".
 
+PLUGIN_AUDIOMUSEAI_ALCHEMY_CLEARED
+	EN	Alchemy selection cleared.
+
 # --- Find Path submenu ---
 PLUGIN_AUDIOMUSEAI_FINDPATH_FROM_NOW
 	EN	From current track to song...
@@ -148,13 +151,10 @@ PLUGIN_AUDIOMUSEAI_STATUS_RUN_ANALYSIS
 PLUGIN_AUDIOMUSEAI_STATUS_RUN_CLUSTERING
 	EN	Trigger clustering
 
-PLUGIN_AUDIOMUSEAI_STATUS_CONFIRM
-	EN	Confirm: this can be resource-intensive on the AudioMuse worker.
-
 PLUGIN_AUDIOMUSEAI_STATUS_TRIGGERED
 	EN	Triggered. Watch progress in the AudioMuse web UI or via "Show active tasks".
 
-# --- Generic prompts and notifications ---
+# --- Generic prompts ---
 PLUGIN_AUDIOMUSEAI_PROMPT_INSTANT
 	EN	Describe the playlist (e.g. low-energy late-night ambient)
 
@@ -164,6 +164,7 @@ PLUGIN_AUDIOMUSEAI_PROMPT_ARTIST
 PLUGIN_AUDIOMUSEAI_PROMPT_SONG_ARTIST
 	EN	Search by artist (then pick a track)
 
+# --- Notifications and error messages ---
 PLUGIN_AUDIOMUSEAI_NOTHING_PLAYING
 	EN	Nothing is currently playing.
 
@@ -176,20 +177,26 @@ PLUGIN_AUDIOMUSEAI_UNAVAILABLE
 PLUGIN_AUDIOMUSEAI_BUSY
 	EN	Already running. Check Server Status → active tasks.
 
+PLUGIN_AUDIOMUSEAI_AUTH_FAIL
+	EN	AudioMuse-AI auth failed: check API token in plugin settings.
+
+PLUGIN_AUDIOMUSEAI_TIMEOUT
+	EN	AudioMuse-AI timed out. The server may be overloaded or rebuilding indexes.
+
+PLUGIN_AUDIOMUSEAI_SERVER_ERROR
+	EN	AudioMuse-AI server error.
+
+PLUGIN_AUDIOMUSEAI_GENERIC_ERROR
+	EN	AudioMuse-AI error:
+
 PLUGIN_AUDIOMUSEAI_QUEUED
 	EN	Queued tracks from AudioMuse-AI.
-
-PLUGIN_AUDIOMUSEAI_FETCHING
-	EN	Asking AudioMuse-AI...
-
-PLUGIN_AUDIOMUSEAI_DSTM_STARTED
-	EN	Auto-extend mode active. Queue will refill from AudioMuse-AI.
 
 PLUGIN_AUDIOMUSEAI_DSTM_STOPPED
 	EN	Auto-extend stopped for this player.
 
-PLUGIN_AUDIOMUSEAI_PICK_ONE
-	EN	Pick a track:
-
 PLUGIN_AUDIOMUSEAI_NO_TRACKS_FOR_ARTIST
 	EN	No tracks found for that artist in AudioMuse-AI.
+
+PLUGIN_AUDIOMUSEAI_EMPTY_INPUT
+	EN	Empty input — please type something.
