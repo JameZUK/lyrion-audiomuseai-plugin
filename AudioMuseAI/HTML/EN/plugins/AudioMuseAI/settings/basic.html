@@ -54,59 +54,218 @@
 	</div>
 </div>
 
+<div class="prefsLine" style="margin-top: 1.5em; border-top: 1px solid #ccc; padding-top: 1em;">
+	<div class="prefsLabel">
+		[% "PLUGIN_AUDIOMUSEAI_SERVER_STATUS" | string %]
+		<button type="button" id="amStatusRefresh" style="margin-left: 1em;">
+			[% "PLUGIN_AUDIOMUSEAI_REFRESH" | string %]
+		</button>
+	</div>
+	<div class="prefsValue">
+		<div id="amServerStatus"
+			data-msg-loading="[% 'PLUGIN_AUDIOMUSEAI_STATUS_LOADING' | string | html %]"
+			data-msg-unreachable="[% 'PLUGIN_AUDIOMUSEAI_STATUS_UNREACHABLE' | string | html %]"
+			data-msg-idle="[% 'PLUGIN_AUDIOMUSEAI_STATUS_IDLE' | string | html %]"
+			data-lbl-state="[% 'PLUGIN_AUDIOMUSEAI_LBL_STATE' | string | html %]"
+			data-lbl-progress="[% 'PLUGIN_AUDIOMUSEAI_LBL_PROGRESS' | string | html %]"
+			data-lbl-running="[% 'PLUGIN_AUDIOMUSEAI_LBL_RUNNING' | string | html %]"
+			data-lbl-task-id="[% 'PLUGIN_AUDIOMUSEAI_LBL_TASK_ID' | string | html %]"
+			data-lbl-albums="[% 'PLUGIN_AUDIOMUSEAI_LBL_ALBUMS' | string | html %]"
+			data-lbl-last-log="[% 'PLUGIN_AUDIOMUSEAI_LBL_LAST_LOG' | string | html %]"
+			data-lbl-server="[% 'PLUGIN_AUDIOMUSEAI_LBL_SERVER' | string | html %]"
+			style="font-family: monospace; font-size: 0.9em; line-height: 1.5; padding: 0.5em; background: #f6f6f6; border: 1px solid #ddd; border-radius: 3px;">
+			<em>Loading…</em>
+		</div>
+	</div>
+</div>
+
 <script>
 (function() {
-	var el = document.getElementById('amTestStatus');
-	if (!el) return;
+	// ----- Test-connection poller -----
+	var testEl = document.getElementById('amTestStatus');
+	if (testEl && testEl.getAttribute('data-initial') === 'in_progress') {
+		var msgOk      = testEl.getAttribute('data-msg-ok')      || 'OK';
+		var msgFail    = testEl.getAttribute('data-msg-fail')    || 'Failed:';
+		var msgTimeout = testEl.getAttribute('data-msg-timeout') || 'Timed out';
+		var attempts = 0;
+		var poll = setInterval(function() {
+			if (++attempts > 60) {
+				clearInterval(poll);
+				renderTest('red', msgTimeout);
+				return;
+			}
+			rpc(['audiomuseai', 'test_result'], function(r) {
+				var val = (r && r.value) || '';
+				if (!val || val === 'in_progress') return;
+				clearInterval(poll);
+				if (val === 'ok') renderTest('green', msgOk);
+				else renderTest('red', msgFail + ' ' + val.replace(/^fail:\s*/, ''));
+			});
+		}, 500);
+		function renderTest(color, text) {
+			var span = document.createElement('span');
+			span.style.color = color;
+			span.textContent = text;
+			testEl.innerHTML = '';
+			testEl.appendChild(span);
+		}
+	}
 
-	var initial = el.getAttribute('data-initial') || '';
-	if (initial !== 'in_progress') return;
+	// ----- Server-status panel -----
+	var statusEl = document.getElementById('amServerStatus');
+	if (statusEl) {
+		var msgLoading     = statusEl.getAttribute('data-msg-loading')     || 'Loading…';
+		var msgUnreachable = statusEl.getAttribute('data-msg-unreachable') || 'Not reachable:';
+		var msgIdle        = statusEl.getAttribute('data-msg-idle')        || 'Server is idle (no active task).';
+		var lblState       = statusEl.getAttribute('data-lbl-state')       || 'State';
+		var lblProgress    = statusEl.getAttribute('data-lbl-progress')    || 'Progress';
+		var lblRunning     = statusEl.getAttribute('data-lbl-running')     || 'Running';
+		var lblTaskId      = statusEl.getAttribute('data-lbl-task-id')     || 'Task ID';
+		var lblAlbums      = statusEl.getAttribute('data-lbl-albums')      || 'Albums';
+		var lblLastLog     = statusEl.getAttribute('data-lbl-last-log')    || 'Last log';
+		var lblServer      = statusEl.getAttribute('data-lbl-server')      || 'Server';
 
-	var msgOk      = el.getAttribute('data-msg-ok')      || 'OK';
-	var msgFail    = el.getAttribute('data-msg-fail')    || 'Failed:';
-	var msgTimeout = el.getAttribute('data-msg-timeout') || 'Timed out';
+		var refreshTimer = null;
+		var refreshCount = 0;
+		var REFRESH_MAX  = 360;        // 1h at 10s
 
-	var attempts    = 0;
-	var maxAttempts = 60;     // 60 * 500ms = 30s
-
-	var poll = setInterval(function() {
-		if (++attempts > maxAttempts) {
-			clearInterval(poll);
-			render('red', msgTimeout);
-			return;
+		function fetchStatus() {
+			if (refreshTimer) { clearTimeout(refreshTimer); refreshTimer = null; }
+			rpc(['audiomuseai', 'server_status'], renderStatus, function(httpErr) {
+				renderUnreachable('Lyrion JSON-RPC: ' + httpErr);
+			});
 		}
 
+		function renderUnreachable(err) {
+			statusEl.innerHTML = '';
+			var p = document.createElement('div');
+			p.style.color = 'red';
+			p.textContent = msgUnreachable + ' ' + err;
+			statusEl.appendChild(p);
+		}
+
+		function renderStatus(r) {
+			statusEl.innerHTML = '';
+			r = r || {};
+
+			// Server URL line is shown in both reachable / unreachable cases.
+			if (r.url) {
+				appendRow(lblServer, r.url, '#666');
+			}
+
+			if (!r.reachable) {
+				var p = document.createElement('div');
+				p.style.color = 'red';
+				p.style.marginTop = '0.4em';
+				p.textContent = msgUnreachable + ' ' + (r.error || 'unknown');
+				statusEl.appendChild(p);
+				return;
+			}
+
+			var hasTask = r.status && String(r.status).length;
+			if (!hasTask) {
+				var d = document.createElement('div');
+				d.style.color = 'green';
+				d.style.marginTop = '0.4em';
+				d.textContent = '✓ ' + msgIdle;
+				statusEl.appendChild(d);
+				return;
+			}
+
+			if (r.status_message) {
+				var em = document.createElement('div');
+				em.style.fontWeight = 'bold';
+				em.style.marginTop  = '0.4em';
+				em.textContent      = r.status_message;
+				statusEl.appendChild(em);
+			}
+
+			var stateText = r.status + (r.task_type ? ' · ' + r.task_type : '');
+			appendRow(lblState, stateText);
+
+			if (r.progress !== '' && r.progress != null) {
+				appendRow(lblProgress, r.progress + '%');
+			}
+			if (r.running_seconds && +r.running_seconds > 0) {
+				appendRow(lblRunning, fmtDuration(+r.running_seconds));
+			}
+			if (r.albums_skipped !== '' || r.albums_to_process !== '') {
+				appendRow(lblAlbums,
+					'skipped ' + (r.albums_skipped || '0') +
+					' · to process ' + (r.albums_to_process || '0'));
+			}
+			if (r.task_id) {
+				appendRow(lblTaskId, r.task_id, '#666');
+			}
+			if (r.last_log) {
+				appendRow(lblLastLog, r.last_log, '#666');
+			}
+
+			// Auto-refresh while a task is running (and we haven't hit the cap).
+			if (/^(PROGRESS|STARTED|PENDING)$/i.test(r.status) &&
+				++refreshCount <= REFRESH_MAX) {
+				refreshTimer = setTimeout(fetchStatus, 10000);
+			}
+		}
+
+		function appendRow(label, value, color) {
+			var row = document.createElement('div');
+			var lab = document.createElement('span');
+			lab.style.display = 'inline-block';
+			lab.style.minWidth = '7em';
+			lab.style.color = '#888';
+			lab.textContent = label + ':';
+			var val = document.createElement('span');
+			val.textContent = String(value);
+			if (color) val.style.color = color;
+			row.appendChild(lab);
+			row.appendChild(val);
+			statusEl.appendChild(row);
+		}
+
+		// Initial fetch + manual refresh button
+		fetchStatus();
+		var btn = document.getElementById('amStatusRefresh');
+		if (btn) btn.addEventListener('click', function() {
+			refreshCount = 0;
+			fetchStatus();
+		});
+	}
+
+	// ----- Shared helpers -----
+	function rpc(params, ok, err) {
 		var xhr = new XMLHttpRequest();
 		xhr.open('POST', '/jsonrpc.js', true);
 		xhr.setRequestHeader('Content-Type', 'application/json');
-		xhr.timeout = 4000;
+		xhr.timeout = 8000;
 		xhr.onreadystatechange = function() {
-			if (xhr.readyState !== 4 || xhr.status !== 200) return;
-			var data;
-			try { data = JSON.parse(xhr.responseText); } catch (e) { return; }
-			var val = (data && data.result && data.result.value) || '';
-			if (!val || val === 'in_progress') return;
-
-			clearInterval(poll);
-			if (val === 'ok') {
-				render('green', msgOk);
-			} else {
-				render('red', msgFail + ' ' + val.replace(/^fail:\s*/, ''));
+			if (xhr.readyState !== 4) return;
+			if (xhr.status !== 200) {
+				if (err) err('HTTP ' + xhr.status);
+				return;
 			}
+			var data;
+			try { data = JSON.parse(xhr.responseText); }
+			catch (e) { if (err) err('Invalid JSON'); return; }
+			if (ok) ok(data && data.result);
 		};
+		xhr.ontimeout = function() { if (err) err('timeout'); };
 		xhr.send(JSON.stringify({
 			id: 1,
 			method: 'slim.request',
-			params: ['', ['audiomuseai', 'test_result']]
+			params: ['', params]
 		}));
-	}, 500);
+	}
 
-	function render(color, text) {
-		var span = document.createElement('span');
-		span.style.color = color;
-		span.textContent = text;
-		el.innerHTML = '';
-		el.appendChild(span);
+	function fmtDuration(sec) {
+		sec = Math.max(0, Math.floor(sec));
+		var h = Math.floor(sec / 3600);
+		var m = Math.floor((sec % 3600) / 60);
+		var s = sec % 60;
+		var pad = function(n) { return n < 10 ? '0' + n : '' + n; };
+		if (h) return h + 'h ' + pad(m) + 'm ' + pad(s) + 's';
+		if (m) return m + 'm ' + pad(s) + 's';
+		return s + 's';
 	}
 })();
 </script>

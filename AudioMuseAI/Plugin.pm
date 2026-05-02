@@ -14,7 +14,7 @@ use Slim::Utils::Timers;
 use Plugins::AudioMuseAI::API;
 
 use constant {
-	VERSION             => '0.2.5',
+	VERSION             => '0.2.6',
 	HEALTHCHECK_DELAY   => 5,
 	# Cap search-result menus to keep the UI navigable on hardware
 	# controllers; AudioMuse can return hundreds of tracks for prolific
@@ -129,6 +129,11 @@ sub initPlugin {
 	# as a JSON-RPC query so the page can poll without reloading.
 	Slim::Control::Request::addDispatch(['audiomuseai', 'test_result'],
 		[0, 1, 1, \&_testResult]);
+
+	# Live server-status snapshot for the settings page (structured fields,
+	# not a Jive menu — different from menu_status / status_active).
+	Slim::Control::Request::addDispatch(['audiomuseai', 'server_status'],
+		[0, 1, 1, \&_serverStatus]);
 
 	# Top-level menu under My Music.
 	my @items = ({
@@ -674,6 +679,46 @@ sub _testResult {
 	my $val = $prefs->get('last_test_result') // '';
 	$request->addResult('value', $val);
 	$request->setStatusDone;
+}
+
+sub _serverStatus {
+	my $request = shift;
+	$request->setStatusProcessing;
+	Plugins::AudioMuseAI::API::active_tasks(
+		sub {
+			my $data = shift;
+			my $details = (ref($data) eq 'HASH' ? $data->{details} : undef) || {};
+			$details = {} unless ref($details) eq 'HASH';
+
+			$request->addResult('reachable',      1);
+			$request->addResult('status',         $data->{status}              // '');
+			$request->addResult('task_type',      $data->{task_type}           // '');
+			$request->addResult('progress',
+				defined $data->{progress} ? "$data->{progress}" : '');
+			$request->addResult('running_seconds',
+				defined $data->{running_time_seconds}
+					? int($data->{running_time_seconds}) : 0);
+			$request->addResult('task_id',        $data->{task_id}             // '');
+			$request->addResult('status_message', $details->{status_message}   // '');
+			$request->addResult('albums_skipped',
+				defined $details->{albums_skipped} ? "$details->{albums_skipped}" : '');
+			$request->addResult('albums_to_process',
+				defined $details->{albums_to_process}
+					? "$details->{albums_to_process}" : '');
+			$request->addResult('last_log',
+				(ref($details->{log}) eq 'ARRAY' && @{$details->{log}})
+					? $details->{log}[-1] : '');
+			$request->addResult('url', $prefs->get('url') // '');
+			$request->setStatusDone;
+		},
+		sub {
+			my $err = shift // 'unknown';
+			$request->addResult('reachable', 0);
+			$request->addResult('error',     $err);
+			$request->addResult('url',       $prefs->get('url') // '');
+			$request->setStatusDone;
+		},
+	);
 }
 
 # ===========================================================================
