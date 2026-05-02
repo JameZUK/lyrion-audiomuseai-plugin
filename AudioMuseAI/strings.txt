@@ -171,7 +171,10 @@ PLUGIN_AUDIOMUSEAI_NO_RESULTS
 	EN	AudioMuse-AI returned no results.
 
 PLUGIN_AUDIOMUSEAI_UNAVAILABLE
-	EN	Similarity service not ready (analysis or clustering may not be complete).
+	EN	Service not ready — AudioMuse may still be analyzing or rebuilding indexes. Check Server Status → active tasks.
+
+PLUGIN_AUDIOMUSEAI_BUSY
+	EN	Already running. Check Server Status → active tasks.
 
 PLUGIN_AUDIOMUSEAI_QUEUED
 	EN	Queued tracks from AudioMuse-AI.

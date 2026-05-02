@@ -724,9 +724,11 @@ sub _notify {
 sub _notifyError {
 	my ($request, $err) = @_;
 	$err ||= 'Unknown error';
-	if ($err =~ /unavailable/i || $err =~ /503/) {
+	if ($err =~ /\b409\b/ || $err =~ /conflict/i) {
+		_notify($request, string('PLUGIN_AUDIOMUSEAI_BUSY'));
+	} elsif ($err =~ /unavailable/i || $err =~ /\b503\b/) {
 		_notify($request, string('PLUGIN_AUDIOMUSEAI_UNAVAILABLE'));
-	} elsif ($err =~ /401|403/) {
+	} elsif ($err =~ /\b401\b|\b403\b/ || $err =~ /unauthor/i || $err =~ /forbidden/i) {
 		_notify($request, "AudioMuse-AI auth failed: check API token in plugin settings.");
 	} elsif ($err =~ /timeout/i) {
 		_notify($request, "AudioMuse-AI timed out. The server may be overloaded.");
