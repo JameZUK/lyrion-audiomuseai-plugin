@@ -596,7 +596,7 @@ sub _statusActive {
 	my $request = shift;
 	$request->setStatusProcessing;
 	Plugins::AudioMuseAI::API::active_tasks(
-		sub { _statusFormat($request, shift) },
+		sub { _statusFormat($request, shift, 'ACTIVE') },
 		sub { _notifyError($request, shift) },
 	);
 }
@@ -605,35 +605,73 @@ sub _statusLast {
 	my $request = shift;
 	$request->setStatusProcessing;
 	Plugins::AudioMuseAI::API::last_task(
-		sub { _statusFormat($request, shift) },
+		sub { _statusFormat($request, shift, 'LAST') },
 		sub { _notifyError($request, shift) },
 	);
 }
 
 sub _statusFormat {
-	my ($request, $data) = @_;
-	# Render the most useful keys verbatim. Top-level fields first
-	# (status, task_type, task_id), then details. Arrays collapsed to
-	# last entry / count.
-	my @lines;
-	if (ref($data) eq 'HASH') {
-		for my $k (qw(status task_type task_id)) {
-			push @lines, "$k: $data->{$k}" if defined $data->{$k} && !ref($data->{$k});
-		}
-		my $details = $data->{details};
-		if (ref($details) eq 'HASH') {
-			for my $k (sort keys %$details) {
-				my $v = $details->{$k};
-				if (ref($v) eq 'ARRAY') {
-					my $n = scalar @$v;
-					my $last = $v->[-1] // '';
-					$v = $n > 1 ? "[$n entries] $last" : "$last";
-				}
-				push @lines, "$k: $v" if defined $v && !ref($v);
-			}
-		}
+	my ($request, $data, $label) = @_;
+	$label ||= 'TASK';
+
+	unless (ref($data) eq 'HASH' && %$data) {
+		return _notifyLines($request, [
+			"[$label] (no task)",
+		]);
 	}
+
+	my $details = $data->{details} || {};
+	$details = {} unless ref($details) eq 'HASH';
+
+	my @lines = ("[$label]");
+
+	# Most informative single line first.
+	if (my $msg = $details->{status_message}) {
+		push @lines, "$msg";
+	}
+
+	# Status + task type as a single line.
+	my @hdr;
+	push @hdr, "status: $data->{status}"        if defined $data->{status};
+	push @hdr, "type: $data->{task_type}"       if defined $data->{task_type};
+	push @lines, join(' · ', @hdr) if @hdr;
+
+	if (defined $data->{progress}) {
+		push @lines, "progress: $data->{progress}%";
+	}
+
+	if (defined $data->{running_time_seconds}) {
+		push @lines, 'running: ' . _fmtDuration($data->{running_time_seconds});
+	}
+
+	if (defined $data->{task_id}) {
+		push @lines, "task_id: $data->{task_id}";
+	}
+
+	# Selected detail fields likely to be informative.
+	for my $k (qw(albums_skipped albums_to_process)) {
+		push @lines, "$k: $details->{$k}"
+			if defined $details->{$k} && !ref($details->{$k});
+	}
+
+	if (ref($details->{log}) eq 'ARRAY' && @{$details->{log}}) {
+		push @lines, 'last log: ' . $details->{log}[-1];
+	}
+	if ($details->{log_storage_info}) {
+		push @lines, $details->{log_storage_info};
+	}
+
 	_notifyLines($request, \@lines);
+}
+
+sub _fmtDuration {
+	my $sec = int(shift // 0);
+	my $h = int($sec / 3600);
+	my $m = int(($sec % 3600) / 60);
+	my $s = $sec % 60;
+	return sprintf('%dh %02dm %02ds', $h, $m, $s) if $h;
+	return sprintf('%dm %02ds', $m, $s)           if $m;
+	return sprintf('%ds', $s);
 }
 
 sub _runAnalysis {
