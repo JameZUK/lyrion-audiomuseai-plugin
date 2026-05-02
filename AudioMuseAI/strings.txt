@@ -123,6 +123,18 @@ PLUGIN_AUDIOMUSEAI_INSTANT_NEW
 PLUGIN_AUDIOMUSEAI_PICK_TYPE_ARTIST
 	EN	Type custom artist name...
 
+PLUGIN_AUDIOMUSEAI_USE_AS_TYPED
+	EN	Use '%s' (typed)
+
+PLUGIN_AUDIOMUSEAI_INFO_SIMILAR_ARTIST
+	EN	AudioMuse: similar artists
+
+PLUGIN_AUDIOMUSEAI_INFO_SIMILAR_TRACK
+	EN	AudioMuse: similar tracks
+
+PLUGIN_AUDIOMUSEAI_INFO_ALCHEMY_FROM_ALBUM
+	EN	AudioMuse: alchemy from this album
+
 PLUGIN_AUDIOMUSEAI_PROMPT_PLAYLIST_NAME
 	EN	Playlist name
 
@@ -220,10 +232,7 @@ PLUGIN_AUDIOMUSEAI_PROMPT_INSTANT
 	EN	Describe the playlist (e.g. low-energy late-night ambient)
 
 PLUGIN_AUDIOMUSEAI_PROMPT_ARTIST
-	EN	Artist name
-
-PLUGIN_AUDIOMUSEAI_PROMPT_SONG_ARTIST
-	EN	Search by artist (then pick a track)
+	EN	Artist name (start typing to filter your library)
 
 # --- Notifications and error messages ---
 PLUGIN_AUDIOMUSEAI_NOTHING_PLAYING

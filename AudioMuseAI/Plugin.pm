@@ -15,9 +15,16 @@ use Plugins::AudioMuseAI::API;
 
 # For looking up Lyrion track titles/artists in the alchemy display.
 use Slim::Schema;
+# Info-menu providers — these add an 'AudioMuse: similar...' option to
+# Lyrion's standard artist/track/album browse, so users get all of
+# Lyrion's native filter / letter-jump / pagination for free instead of
+# a custom (and limited) picker inside the plugin menu.
+use Slim::Menu::ArtistInfo;
+use Slim::Menu::TrackInfo;
+use Slim::Menu::AlbumInfo;
 
 use constant {
-	VERSION             => '0.2.9',
+	VERSION             => '0.2.10',
 	HEALTHCHECK_DELAY   => 5,
 	# Cap search-result menus to keep the UI navigable on hardware
 	# controllers; AudioMuse can return hundreds of tracks for prolific
@@ -81,6 +88,10 @@ sub initPlugin {
 		[1, 1, 1, \&_menuSimilarSong]);
 	Slim::Control::Request::addDispatch(['audiomuseai', 'menu_similar_artist'],
 		[1, 1, 1, \&_menuSimilarArtist]);
+	# Filter the Lyrion artist list by a substring; used by the text-input
+	# entries in similar_song / similar_artist for actual autocomplete.
+	Slim::Control::Request::addDispatch(['audiomuseai', 'filter_artists'],
+		[1, 1, 1, \&_filterArtists]);
 
 	# Direct actions ---------------------------------------------------------
 	Slim::Control::Request::addDispatch(['audiomuseai', 'similar_now'],
@@ -140,6 +151,11 @@ sub initPlugin {
 	Slim::Control::Request::addDispatch(['audiomuseai', 'save_playlist'],
 		[1, 1, 1, \&_savePlaylist]);
 
+	# 'AudioMuse: alchemy from this album' — invoked from the album-info
+	# context menu in Lyrion's standard browse.
+	Slim::Control::Request::addDispatch(['audiomuseai', 'alchemy_album'],
+		[1, 1, 1, \&_alchemyAlbum]);
+
 	# Instant playlist with recent prompts
 	Slim::Control::Request::addDispatch(['audiomuseai', 'similar_artist_with_artist'],
 		[1, 1, 1, \&_similarArtistWithArtist]);
@@ -173,6 +189,27 @@ sub initPlugin {
 	Slim::Control::Request::subscribe(\&_onNewSong,
 		[['playlist'], ['newsong']]);
 
+	# Hook into Lyrion's standard browse so users can pick artists/tracks
+	# via the native UI (with all its filter / letter-jump goodness).
+	Slim::Menu::ArtistInfo->registerInfoProvider(
+		audiomuseaiSimilarArtist => (
+			after => 'top',
+			func  => \&_artistInfoSimilar,
+		),
+	);
+	Slim::Menu::TrackInfo->registerInfoProvider(
+		audiomuseaiSimilarTrack => (
+			after => 'top',
+			func  => \&_trackInfoSimilar,
+		),
+	);
+	Slim::Menu::AlbumInfo->registerInfoProvider(
+		audiomuseaiAlbumAlchemy => (
+			after => 'top',
+			func  => \&_albumInfoAlchemy,
+		),
+	);
+
 	$class->SUPER::initPlugin(@_);
 	$log->info('AudioMuse-AI plugin v' . VERSION . ' initialised');
 
@@ -188,6 +225,78 @@ sub shutdownPlugin {
 		Slim::Utils::Timers::killSpecific(@$t);
 	}
 	@_timers = ();
+}
+
+# ---------------------------------------------------------------------------
+# Info-menu providers — surfaced from Lyrion's standard artist / track /
+# album browse. Each returns a redirect-style menu item that, when tapped,
+# fires our own dispatcher with the relevant context (artist name / track
+# id) already filled in. No typing or picker required because the user
+# was already on the right item in Lyrion's native UI.
+# ---------------------------------------------------------------------------
+
+sub _artistInfoSimilar {
+	my ($client, $url, $artist) = @_;
+	return unless $artist;
+	my $name = ref($artist) ? $artist->name : "$artist";
+	return unless defined $name && length $name;
+	return {
+		type => 'redirect',
+		name => string('PLUGIN_AUDIOMUSEAI_INFO_SIMILAR_ARTIST'),
+		jive => {
+			actions => {
+				go => {
+					cmd    => ['audiomuseai', 'similar_artist'],
+					player => 1,
+					params => { artist => "$name" },
+				},
+			},
+		},
+	};
+}
+
+sub _trackInfoSimilar {
+	my ($client, $url, $track) = @_;
+	return unless $track;
+	my $tid = ref($track) ? $track->id : "$track";
+	return unless defined $tid && length $tid;
+	return {
+		type => 'redirect',
+		name => string('PLUGIN_AUDIOMUSEAI_INFO_SIMILAR_TRACK'),
+		jive => {
+			actions => {
+				go => {
+					cmd    => ['audiomuseai', 'similar_track'],
+					player => 1,
+					params => { track_id => "$tid" },
+				},
+			},
+		},
+	};
+}
+
+sub _albumInfoAlchemy {
+	my ($client, $url, $album) = @_;
+	return unless $album;
+	my $aid = ref($album) ? $album->id : "$album";
+	return unless defined $aid && length $aid;
+	# We don't have a direct AudioMuse "similar to album" endpoint, but
+	# we can approximate by adding all of the album's tracks to the
+	# alchemy ADD list and triggering a generate. That gives a sonic
+	# blend that "smells like" the album.
+	return {
+		type => 'redirect',
+		name => string('PLUGIN_AUDIOMUSEAI_INFO_ALCHEMY_FROM_ALBUM'),
+		jive => {
+			actions => {
+				go => {
+					cmd    => ['audiomuseai', 'alchemy_album'],
+					player => 1,
+					params => { album_id => "$aid" },
+				},
+			},
+		},
+	};
 }
 
 sub _healthCheck {
@@ -374,45 +483,102 @@ sub _menuDynamic {
 sub _menuSimilarSong {
 	my $request = shift;
 	my $client  = $request->client or return $request->setStatusBadParams;
-	my @menu;
-	push @menu, _textInputItem('PLUGIN_AUDIOMUSEAI_PICK_TYPE_ARTIST',
-		'PLUGIN_AUDIOMUSEAI_PROMPT_SONG_ARTIST',
-		['audiomuseai', 'similar_song_search'], 'artist');
-	# Library artists drilled into the same dispatcher: tap an artist
-	# to see their tracks, then tap a track to get sonic neighbours.
-	for my $name (@{ _libraryArtists(MAX_PICK_RESULTS) }) {
-		push @menu, _libraryArtistItem($name,
-			['audiomuseai', 'similar_song_search']);
-	}
-	_emit($request, \@menu);
+	# A single text-input that filters the Lyrion library against the
+	# typed substring and presents matching artists as a pick list. The
+	# `target` param tells _filterArtists which downstream dispatcher
+	# to wire each match item to.
+	_emit($request, [
+		_artistFilterInput('similar_song_search'),
+	]);
 }
 
 sub _menuSimilarArtist {
 	my $request = shift;
 	my $client  = $request->client or return $request->setStatusBadParams;
-	my @menu;
-	push @menu, _textInputItem('PLUGIN_AUDIOMUSEAI_PICK_TYPE_ARTIST',
-		'PLUGIN_AUDIOMUSEAI_PROMPT_ARTIST',
-		['audiomuseai', 'similar_artist'], 'artist');
-	for my $name (@{ _libraryArtists(MAX_PICK_RESULTS) }) {
-		push @menu, _libraryArtistItem($name,
-			['audiomuseai', 'similar_artist']);
-	}
-	_emit($request, \@menu);
+	_emit($request, [
+		_artistFilterInput('similar_artist'),
+	]);
 }
 
-# Returns up to $limit artist names from Lyrion's library, alphabetically
-# (using Lyrion's own native sort so accents / articles are handled
-# consistently with the rest of the controller UI). Backed by Lyrion's
-# built-in 'artists' CLI which is in-process and cached internally.
+# Filter the Lyrion artist list by a typed substring and present matches.
+# The chosen artist (or the typed text as-is) is then dispatched to
+# `audiomuseai <target>` with `artist:<name>`.
+sub _filterArtists {
+	my $request = shift;
+	my $client  = $request->client or return $request->setStatusBadParams;
+	my $query   = _trim($request->getParam('query') // '');
+	my $target  = $request->getParam('target') || 'similar_artist';
+	# Sanitise target: only allow our own dispatchers.
+	$target = 'similar_artist'
+		unless grep { $_ eq $target } qw(similar_artist similar_song_search);
+	return _notify($request, string('PLUGIN_AUDIOMUSEAI_EMPTY_INPUT'))
+		unless length $query;
+
+	my $matches = _libraryArtists(MAX_PICK_RESULTS, $query);
+	my @items;
+
+	# Always offer "use as typed" first — the user might be searching
+	# for an artist that isn't (yet) in the local Lyrion library but
+	# exists in AudioMuse. Also covers the no-matches case.
+	push @items, {
+		text    => sprintf(string('PLUGIN_AUDIOMUSEAI_USE_AS_TYPED'), $query),
+		actions => {
+			go => {
+				cmd    => ['audiomuseai', $target],
+				player => 1,
+				params => { artist => "$query" },
+			},
+		},
+		nextWindow => 'refresh',
+	};
+
+	for my $name (@$matches) {
+		next if lc($name) eq lc($query);  # already at the top
+		push @items, _libraryArtistItem($name,
+			['audiomuseai', $target]);
+	}
+
+	_emit($request, \@items);
+}
+
+sub _artistFilterInput {
+	my $target = shift;
+	return {
+		text  => string('PLUGIN_AUDIOMUSEAI_PICK_TYPE_ARTIST'),
+		input => {
+			len  => 1,
+			help => { text => string('PLUGIN_AUDIOMUSEAI_PROMPT_ARTIST') },
+			softbutton1 => 'Insert',
+			softbutton2 => 'Delete',
+		},
+		actions => {
+			go => {
+				cmd    => ['audiomuseai', 'filter_artists'],
+				player => 1,
+				params => {
+					query  => '__TAGGEDINPUT__',
+					target => $target,
+				},
+			},
+		},
+		nextWindow => 'refresh',
+	};
+}
+
+# Returns up to $limit artist names from Lyrion's library matching
+# $search (substring). When $search is empty/undef returns the first
+# $limit alphabetically. Uses Lyrion's built-in 'artists' CLI which is
+# in-process, indexed, and supports a `search:` filter natively.
 sub _libraryArtists {
-	my $limit = shift // MAX_PICK_RESULTS;
+	my ($limit, $search) = @_;
+	$limit //= MAX_PICK_RESULTS;
+	my @cmd = ('artists', '0', "$limit");
+	push @cmd, "search:$search"
+		if defined $search && length $search;
+
 	my @out;
 	eval {
-		my $req = Slim::Control::Request::executeRequest(
-			undef,
-			['artists', '0', "$limit"]
-		);
+		my $req = Slim::Control::Request::executeRequest(undef, \@cmd);
 		return unless $req;
 		my $loop = $req->getResult('artists_loop') || [];
 		for my $a (@$loop) {
@@ -421,9 +587,7 @@ sub _libraryArtists {
 			push @out, $name;
 		}
 	};
-	if ($@) {
-		$log->warn("library artist lookup failed: $@");
-	}
+	$log->warn("library artist lookup failed: $@") if $@;
 	return \@out;
 }
 
@@ -711,6 +875,40 @@ sub _alchemyReset {
 	$prefs->client($client)->set('alchemy_add', []);
 	$prefs->client($client)->set('alchemy_sub', []);
 	_notify($request, string('PLUGIN_AUDIOMUSEAI_ALCHEMY_CLEARED'));
+}
+
+sub _alchemyAlbum {
+	my $request = shift;
+	my $client  = $request->client or return $request->setStatusBadParams;
+	my $aid     = $request->getParam('album_id');
+	return $request->setStatusBadParams unless defined $aid && length $aid;
+
+	my @track_ids;
+	eval {
+		my $album = Slim::Schema->find('Album', $aid);
+		return unless $album;
+		my $rs = $album->tracks;
+		while (my $t = $rs->next) {
+			push @track_ids, "" . $t->id if $t && defined $t->id;
+		}
+	};
+	if ($@) {
+		$log->warn("alchemy_album lookup failed for $aid: $@");
+	}
+	unless (@track_ids) {
+		return _notify($request, string('PLUGIN_AUDIOMUSEAI_NO_RESULTS'));
+	}
+
+	# Fire AudioMuse alchemy with the full album as ADD seeds. Don't
+	# clobber the player's existing ADD/SUB state — alchemy_album is a
+	# one-shot operation with its own seed set.
+	$log->info(sprintf('alchemy_album: %d tracks from album %s', scalar @track_ids, $aid));
+	$request->setStatusProcessing;
+	Plugins::AudioMuseAI::API::alchemy(
+		\@track_ids, [], _count($client),
+		sub { _queueResults($request, $client, shift, 1) },
+		sub { _notifyError($request, shift) },
+	);
 }
 
 sub _alchemyGenerate {
