@@ -40,15 +40,12 @@ sub handler {
 	my ($class, $client, $params) = @_;
 
 	# Normalize submitted values BEFORE SUPER::handler persists them.
-	# SUPER reads $params->{pref_url} etc and writes them via the prefs
-	# system, so by mutating $params we steer what gets stored.
 	if (defined $params->{pref_url}) {
 		$params->{pref_url} = _normalizeUrl($params->{pref_url});
 	}
 	if (defined $params->{pref_token}) {
 		my $t = _trim($params->{pref_token});
-		# Reject CR/LF — would smuggle headers into the Authorization line.
-		$t = '' if $t =~ /[\r\n]/;
+		$t = '' if $t =~ /[\r\n]/;        # reject header-smuggling input
 		$params->{pref_token} = $t;
 	}
 	if (defined $params->{pref_default_count}) {
@@ -58,21 +55,34 @@ sub handler {
 		$params->{pref_default_count} = int($n);
 	}
 
+	my $is_post = grep { /^pref_/ } keys %$params;
+
 	if ($params->{'test_connection'}) {
-		# API calls are async; the settings page template re-renders on
-		# the next request. Kick off a probe and stash the result in a
-		# transient pref the template reads.
+		# Start the async probe. The page renders 'Testing…' and a JS
+		# poller (in basic.html) polls audiomuseai test_result via
+		# JSON-RPC every 500ms until this changes to ok / fail:.
+		$prefs->set('last_test_result', 'in_progress');
 		Plugins::AudioMuseAI::API::ping(
-			sub { $prefs->set('last_test_result', 'ok'); },
+			sub {
+				# Only write if the test we kicked off is still the
+				# current outstanding one; the user may have saved
+				# different settings since.
+				$prefs->set('last_test_result', 'ok')
+					if ($prefs->get('last_test_result') // '') eq 'in_progress';
+			},
 			sub {
 				my $err = shift // 'unknown';
-				$prefs->set('last_test_result', "fail: $err");
+				$prefs->set('last_test_result', "fail: $err")
+					if ($prefs->get('last_test_result') // '') eq 'in_progress';
 			},
 		);
-		$prefs->set('last_test_result', 'in_progress');
+	} elsif ($is_post) {
+		# Plain Save — the previous test result no longer reflects the
+		# current URL/token, so clear it to avoid showing stale state.
+		$prefs->set('last_test_result', '');
 	}
 
-	$params->{'test_result'} = $prefs->get('last_test_result') || '';
+	$params->{'test_result'} = $prefs->get('last_test_result') // '';
 
 	return $class->SUPER::handler($client, $params);
 }

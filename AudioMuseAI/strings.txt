@@ -37,6 +37,12 @@ PLUGIN_AUDIOMUSEAI_CONNECTION_OK
 PLUGIN_AUDIOMUSEAI_CONNECTION_FAIL
 	EN	✗ Could not reach AudioMuse-AI:
 
+PLUGIN_AUDIOMUSEAI_TEST_TESTING
+	EN	Testing…
+
+PLUGIN_AUDIOMUSEAI_TEST_TIMEOUT
+	EN	Timed out polling for AudioMuse-AI test result.
+
 # --- Top-level menu items ---
 PLUGIN_AUDIOMUSEAI_MENU_SIMILAR_NOW
 	EN	Similar to current track

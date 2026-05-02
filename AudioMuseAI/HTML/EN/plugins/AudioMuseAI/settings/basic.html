@@ -36,14 +36,79 @@
 	<div class="prefsLabel">[% "PLUGIN_AUDIOMUSEAI_TEST_CONNECTION" | string %]</div>
 	<div class="prefsValue">
 		<input type="submit" name="test_connection" value="[% 'PLUGIN_AUDIOMUSEAI_TEST_CONNECTION' | string %]" />
-		[% IF test_result == 'ok' %]
-			<span style="color: green; margin-left: 1em;">[% "PLUGIN_AUDIOMUSEAI_CONNECTION_OK" | string %]</span>
-		[% ELSIF test_result.match('^fail') %]
-			<span style="color: red; margin-left: 1em;">[% "PLUGIN_AUDIOMUSEAI_CONNECTION_FAIL" | string %] [% test_result.replace('^fail: ?', '') | html %]</span>
-		[% ELSIF test_result == 'in_progress' %]
-			<span style="color: gray; margin-left: 1em;">…</span>
-		[% END %]
+		<span id="amTestStatus"
+			data-initial="[% test_result | html %]"
+			data-msg-ok="[% 'PLUGIN_AUDIOMUSEAI_CONNECTION_OK' | string | html %]"
+			data-msg-fail="[% 'PLUGIN_AUDIOMUSEAI_CONNECTION_FAIL' | string | html %]"
+			data-msg-testing="[% 'PLUGIN_AUDIOMUSEAI_TEST_TESTING' | string | html %]"
+			data-msg-timeout="[% 'PLUGIN_AUDIOMUSEAI_TEST_TIMEOUT' | string | html %]"
+			style="margin-left: 1em;">
+			[% IF test_result == 'ok' %]
+				<span style="color: green;">[% "PLUGIN_AUDIOMUSEAI_CONNECTION_OK" | string %]</span>
+			[% ELSIF test_result.match('^fail') %]
+				<span style="color: red;">[% "PLUGIN_AUDIOMUSEAI_CONNECTION_FAIL" | string %] [% test_result.replace('^fail:\s*', '') | html %]</span>
+			[% ELSIF test_result == 'in_progress' %]
+				<span style="color: gray;">[% "PLUGIN_AUDIOMUSEAI_TEST_TESTING" | string %]</span>
+			[% END %]
+		</span>
 	</div>
 </div>
+
+<script>
+(function() {
+	var el = document.getElementById('amTestStatus');
+	if (!el) return;
+
+	var initial = el.getAttribute('data-initial') || '';
+	if (initial !== 'in_progress') return;
+
+	var msgOk      = el.getAttribute('data-msg-ok')      || 'OK';
+	var msgFail    = el.getAttribute('data-msg-fail')    || 'Failed:';
+	var msgTimeout = el.getAttribute('data-msg-timeout') || 'Timed out';
+
+	var attempts    = 0;
+	var maxAttempts = 60;     // 60 * 500ms = 30s
+
+	var poll = setInterval(function() {
+		if (++attempts > maxAttempts) {
+			clearInterval(poll);
+			render('red', msgTimeout);
+			return;
+		}
+
+		var xhr = new XMLHttpRequest();
+		xhr.open('POST', '/jsonrpc.js', true);
+		xhr.setRequestHeader('Content-Type', 'application/json');
+		xhr.timeout = 4000;
+		xhr.onreadystatechange = function() {
+			if (xhr.readyState !== 4 || xhr.status !== 200) return;
+			var data;
+			try { data = JSON.parse(xhr.responseText); } catch (e) { return; }
+			var val = (data && data.result && data.result.value) || '';
+			if (!val || val === 'in_progress') return;
+
+			clearInterval(poll);
+			if (val === 'ok') {
+				render('green', msgOk);
+			} else {
+				render('red', msgFail + ' ' + val.replace(/^fail:\s*/, ''));
+			}
+		};
+		xhr.send(JSON.stringify({
+			id: 1,
+			method: 'slim.request',
+			params: ['', ['audiomuseai', 'test_result']]
+		}));
+	}, 500);
+
+	function render(color, text) {
+		var span = document.createElement('span');
+		span.style.color = color;
+		span.textContent = text;
+		el.innerHTML = '';
+		el.appendChild(span);
+	}
+})();
+</script>
 
 [% PROCESS settings/footer.html %]

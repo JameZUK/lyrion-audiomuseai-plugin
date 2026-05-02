@@ -14,7 +14,7 @@ use Slim::Utils::Timers;
 use Plugins::AudioMuseAI::API;
 
 use constant {
-	VERSION             => '0.2.4',
+	VERSION             => '0.2.5',
 	HEALTHCHECK_DELAY   => 5,
 	# Cap search-result menus to keep the UI navigable on hardware
 	# controllers; AudioMuse can return hundreds of tracks for prolific
@@ -124,6 +124,11 @@ sub initPlugin {
 		[0, 1, 1, \&_runClustering]);
 	Slim::Control::Request::addDispatch(['audiomuseai', 'open_map'],
 		[0, 1, 1, \&_openMap]);
+
+	# Settings-page AJAX support: report the latest connection-test result
+	# as a JSON-RPC query so the page can poll without reloading.
+	Slim::Control::Request::addDispatch(['audiomuseai', 'test_result'],
+		[0, 1, 1, \&_testResult]);
 
 	# Top-level menu under My Music.
 	my @items = ({
@@ -662,6 +667,13 @@ sub _openMap {
 		string('PLUGIN_AUDIOMUSEAI_MENU_OPEN_MAP') . ':',
 		$url,
 	]);
+}
+
+sub _testResult {
+	my $request = shift;
+	my $val = $prefs->get('last_test_result') // '';
+	$request->addResult('value', $val);
+	$request->setStatusDone;
 }
 
 # ===========================================================================
