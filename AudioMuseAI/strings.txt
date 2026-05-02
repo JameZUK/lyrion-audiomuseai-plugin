@@ -114,6 +114,21 @@ PLUGIN_AUDIOMUSEAI_MENU_STATUS
 PLUGIN_AUDIOMUSEAI_MENU_OPEN_MAP
 	EN	Open Music Map (web UI)
 
+PLUGIN_AUDIOMUSEAI_MENU_SAVE_PLAYLIST
+	EN	Save current queue as playlist...
+
+PLUGIN_AUDIOMUSEAI_INSTANT_NEW
+	EN	New prompt...
+
+PLUGIN_AUDIOMUSEAI_PROMPT_PLAYLIST_NAME
+	EN	Playlist name
+
+PLUGIN_AUDIOMUSEAI_PLAYLIST_SAVED
+	EN	Saved Lyrion playlist
+
+PLUGIN_AUDIOMUSEAI_PLAYLIST_EMPTY
+	EN	Current queue is empty — nothing to save.
+
 # --- Browse by mood preset labels ---
 PLUGIN_AUDIOMUSEAI_MOOD_ENERGETIC
 	EN	Energetic / High-tempo

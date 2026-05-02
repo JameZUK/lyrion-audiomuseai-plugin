@@ -13,8 +13,11 @@ use Slim::Utils::Timers;
 
 use Plugins::AudioMuseAI::API;
 
+# For looking up Lyrion track titles/artists in the alchemy display.
+use Slim::Schema;
+
 use constant {
-	VERSION             => '0.2.7',
+	VERSION             => '0.2.8',
 	HEALTHCHECK_DELAY   => 5,
 	# Cap search-result menus to keep the UI navigable on hardware
 	# controllers; AudioMuse can return hundreds of tracks for prolific
@@ -24,6 +27,8 @@ use constant {
 	COUNT_MIN           => 5,
 	COUNT_MAX           => 100,
 	FINDPATH_MAX_STEPS  => 12,
+	# Per-player ring buffer for recent CLAP/instant prompts.
+	RECENT_PROMPTS_MAX  => 5,
 };
 
 my $log = Slim::Utils::Log->addLogCategory({
@@ -70,6 +75,8 @@ sub initPlugin {
 		[0, 1, 1, \&_menuDynamic]);
 	Slim::Control::Request::addDispatch(['audiomuseai', 'menu_status'],
 		[0, 1, 1, \&_menuStatus]);
+	Slim::Control::Request::addDispatch(['audiomuseai', 'menu_instant'],
+		[1, 1, 1, \&_menuInstant]);
 
 	# Direct actions ---------------------------------------------------------
 	Slim::Control::Request::addDispatch(['audiomuseai', 'similar_now'],
@@ -124,6 +131,14 @@ sub initPlugin {
 		[0, 1, 1, \&_runClustering]);
 	Slim::Control::Request::addDispatch(['audiomuseai', 'open_map'],
 		[0, 1, 1, \&_openMap]);
+
+	# Save current queue
+	Slim::Control::Request::addDispatch(['audiomuseai', 'save_playlist'],
+		[1, 1, 1, \&_savePlaylist]);
+
+	# Instant playlist with recent prompts
+	Slim::Control::Request::addDispatch(['audiomuseai', 'similar_artist_with_artist'],
+		[1, 1, 1, \&_similarArtistWithArtist]);
 
 	# Settings-page AJAX support: report the latest connection-test result
 	# as a JSON-RPC query so the page can poll without reloading.
@@ -192,6 +207,17 @@ sub _topMenu {
 	my $request = shift;
 	my @menu;
 
+	# Status hint at the top of the submenu — uses the cached
+	# active_tasks state if available so menu rendering doesn't wait
+	# on the network. Fires off a background fetch to refresh the
+	# cache for the next invocation.
+	my $cached = Plugins::AudioMuseAI::API::peek_active_tasks();
+	if (my $hdr = _statusHeaderItem($cached)) {
+		push @menu, $hdr;
+	}
+	# Prime the cache (fire-and-forget; ignore the result).
+	Plugins::AudioMuseAI::API::active_tasks(sub {}, sub {});
+
 	push @menu, _actionItem('PLUGIN_AUDIOMUSEAI_MENU_SIMILAR_NOW',
 		['audiomuseai', 'similar_now'], 1);
 
@@ -206,9 +232,10 @@ sub _topMenu {
 	push @menu, _actionItem('PLUGIN_AUDIOMUSEAI_MENU_FINGERPRINT',
 		['audiomuseai', 'sonic_fp'], 1);
 
-	push @menu, _textInputItem('PLUGIN_AUDIOMUSEAI_MENU_INSTANT',
-		'PLUGIN_AUDIOMUSEAI_PROMPT_INSTANT',
-		['audiomuseai', 'instant'], 'prompt');
+	# Instant Playlist is now a submenu so we can offer recent prompts
+	# (per player) alongside a fresh-prompt text input.
+	push @menu, _submenuItem('PLUGIN_AUDIOMUSEAI_MENU_INSTANT',
+		['audiomuseai', 'menu_instant']);
 
 	push @menu, _submenuItem('PLUGIN_AUDIOMUSEAI_MENU_MOOD',
 		['audiomuseai', 'menu_mood']);
@@ -221,11 +248,13 @@ sub _topMenu {
 	push @menu, _submenuItem('PLUGIN_AUDIOMUSEAI_MENU_STATUS',
 		['audiomuseai', 'menu_status']);
 
-	# Open Music Map: build directly as a weblink-bearing item. Lyrion
-	# controllers that recognise `weblink` (default web UI, Material Skin,
-	# iPeng) will treat this as a clickable link to the AudioMuse web UI.
-	# The fallback _openMap dispatch is kept so older controllers that
-	# only honour `actions.go` still get something useful.
+	# Save current Lyrion queue under a user-supplied name. Doesn't go
+	# through AudioMuse — it just calls Lyrion's playlist save command.
+	push @menu, _textInputItem('PLUGIN_AUDIOMUSEAI_MENU_SAVE_PLAYLIST',
+		'PLUGIN_AUDIOMUSEAI_PROMPT_PLAYLIST_NAME',
+		['audiomuseai', 'save_playlist'], 'name');
+
+	# Open Music Map: weblink-bearing item with action.go fallback.
 	my $url = ($prefs->get('url') || '') . '/';
 	push @menu, {
 		text    => string('PLUGIN_AUDIOMUSEAI_MENU_OPEN_MAP'),
@@ -239,6 +268,29 @@ sub _topMenu {
 	};
 
 	_emit($request, \@menu);
+}
+
+# Build the status header item from cached active_tasks data. Returns
+# undef when there's nothing useful to show (no cache hit, idle server,
+# unauthenticated). Returns a non-tappable text item otherwise.
+sub _statusHeaderItem {
+	my $data = shift;
+	return undef unless ref($data) eq 'HASH' && %$data;
+	my $details = $data->{details};
+	$details = {} unless ref($details) eq 'HASH';
+
+	my $state = $data->{status} // '';
+	# Only show the header when something interesting is happening.
+	return undef unless $state =~ /^(PROGRESS|STARTED|PENDING)$/i;
+
+	my $type     = $data->{task_type}             // 'task';
+	my $progress = $data->{progress};
+	my $bits = "* $type";
+	$bits .= " - $progress%" if defined $progress && $progress ne '';
+	if (defined $data->{running_time_seconds} && $data->{running_time_seconds}) {
+		$bits .= ' (' . _fmtDuration($data->{running_time_seconds}) . ')';
+	}
+	return { text => $bits };
 }
 
 sub _menuMood {
@@ -313,6 +365,34 @@ sub _menuDynamic {
 	]);
 }
 
+sub _menuInstant {
+	my $request = shift;
+	my $client  = $request->client or return $request->setStatusBadParams;
+
+	my @menu;
+	push @menu, _textInputItem('PLUGIN_AUDIOMUSEAI_INSTANT_NEW',
+		'PLUGIN_AUDIOMUSEAI_PROMPT_INSTANT',
+		['audiomuseai', 'instant'], 'prompt');
+
+	my $recents = $prefs->client($client)->get('recent_prompts');
+	$recents = [] unless ref($recents) eq 'ARRAY';
+	for my $p (@$recents) {
+		next unless defined $p && length $p;
+		push @menu, {
+			text    => $p,
+			actions => {
+				go => {
+					cmd    => ['audiomuseai', 'instant'],
+					player => 1,
+					params => { prompt => $p },
+				},
+			},
+			nextWindow => 'refresh',
+		};
+	}
+	_emit($request, \@menu);
+}
+
 sub _menuStatus {
 	my $request = shift;
 	_emit($request, [
@@ -341,7 +421,7 @@ sub _similarNow {
 	$log->info('similar_now: track=' . $song->id . ' client=' . $client->id);
 	$request->setStatusProcessing;
 	Plugins::AudioMuseAI::API::similar_tracks(
-		$song->id, _count(),
+		$song->id, _count($client),
 		sub { _queueResults($request, $client, shift, 0) },
 		sub { _notifyError($request, shift) },
 	);
@@ -375,7 +455,7 @@ sub _similarTrack {
 	return $request->setStatusBadParams unless defined $tid && length $tid;
 	$request->setStatusProcessing;
 	Plugins::AudioMuseAI::API::similar_tracks(
-		$tid, _count(),
+		$tid, _count($client),
 		sub { _queueResults($request, $client, shift, 0) },
 		sub { _notifyError($request, shift) },
 	);
@@ -389,20 +469,50 @@ sub _similarArtist {
 
 	$request->setStatusProcessing;
 	Plugins::AudioMuseAI::API::similar_artists(
-		$artist, 5,
+		$artist, 10,
 		sub {
 			my $data = shift;
 			my @arts = ref($data) eq 'ARRAY' ? @$data : ();
 			unless (@arts) {
 				return _notify($request, string('PLUGIN_AUDIOMUSEAI_NO_RESULTS'));
 			}
-			my $first = $arts[0]->{artist} // $arts[0]->{name} // $artist;
-			Plugins::AudioMuseAI::API::search_tracks(
-				$first,
-				sub { _queueResults($request, $client, shift, 0) },
-				sub { _notifyError($request, shift) },
-			);
+			# Render a pick list of similar artists. User taps one to
+			# queue tracks by that artist (via search_tracks).
+			my @items;
+			for my $a (@arts) {
+				my $name = _safeText($a->{artist} // $a->{name} // '');
+				next unless length $name;
+				my $sub = '';
+				if (defined $a->{distance}) {
+					$sub = sprintf(' (sim %.2f)', $a->{distance});
+				}
+				push @items, {
+					text    => $name . $sub,
+					actions => {
+						go => {
+							cmd    => ['audiomuseai', 'similar_artist_with_artist'],
+							player => 1,
+							params => { artist => "$name" },
+						},
+					},
+					nextWindow => 'refresh',
+				};
+			}
+			_emit($request, \@items);
 		},
+		sub { _notifyError($request, shift) },
+	);
+}
+
+sub _similarArtistWithArtist {
+	my $request = shift;
+	my $client  = $request->client or return $request->setStatusBadParams;
+	my $artist  = _trim($request->getParam('artist') // '');
+	return _notify($request, string('PLUGIN_AUDIOMUSEAI_EMPTY_INPUT')) unless length $artist;
+	$request->setStatusProcessing;
+	Plugins::AudioMuseAI::API::search_tracks(
+		$artist,
+		sub { _queueResults($request, $client, shift, 0) },
 		sub { _notifyError($request, shift) },
 	);
 }
@@ -412,7 +522,7 @@ sub _sonicFingerprint {
 	my $client  = $request->client or return $request->setStatusBadParams;
 	$request->setStatusProcessing;
 	Plugins::AudioMuseAI::API::sonic_fingerprint(
-		_count(),
+		_count($client),
 		sub { _queueResults($request, $client, shift, 1) },
 		sub { _notifyError($request, shift) },
 	);
@@ -423,13 +533,26 @@ sub _instantPlaylist {
 	my $client  = $request->client or return $request->setStatusBadParams;
 	my $prompt  = _trim($request->getParam('prompt') // '');
 	return _notify($request, string('PLUGIN_AUDIOMUSEAI_EMPTY_INPUT')) unless length $prompt;
+	_recordRecentPrompt($client, $prompt);
 	$log->info("instant playlist: $prompt");
 	$request->setStatusProcessing;
 	Plugins::AudioMuseAI::API::clap_search(
-		$prompt, _count(),
+		$prompt, _count($client),
 		sub { _queueResults($request, $client, shift, 1) },
 		sub { _notifyError($request, shift) },
 	);
+}
+
+sub _recordRecentPrompt {
+	my ($client, $prompt) = @_;
+	return unless $client && defined $prompt && length $prompt;
+	my $list = $prefs->client($client)->get('recent_prompts');
+	$list = [] unless ref($list) eq 'ARRAY';
+	# Move-to-front: remove existing instance, prepend new one.
+	@$list = grep { $_ ne $prompt } @$list;
+	unshift @$list, $prompt;
+	@$list = @$list[0 .. RECENT_PROMPTS_MAX - 1] if @$list > RECENT_PROMPTS_MAX;
+	$prefs->client($client)->set('recent_prompts', $list);
 }
 
 sub _moodPlaylist {
@@ -440,7 +563,7 @@ sub _moodPlaylist {
 	$log->info("mood playlist: $prompt");
 	$request->setStatusProcessing;
 	Plugins::AudioMuseAI::API::clap_search(
-		$prompt, _count(),
+		$prompt, _count($client),
 		sub { _queueResults($request, $client, shift, 1) },
 		sub { _notifyError($request, shift) },
 	);
@@ -479,12 +602,30 @@ sub _alchemyShow {
 	if (!@$a && !@$s) {
 		return _notify($request, string('PLUGIN_AUDIOMUSEAI_ALCHEMY_EMPTY'));
 	}
-	# Cap displayed IDs in the summary line — long lists get truncated
-	# with a "+N more" tail rather than rendering hundreds of IDs.
-	_notifyLines($request, [
-		_alchemyLine('ADD',      $a),
-		_alchemyLine('SUBTRACT', $s),
-	]);
+
+	my @lines;
+	if (@$a) {
+		push @lines, sprintf('ADD (%d):', scalar @$a);
+		push @lines, map { '  + ' . _trackLabel($_) } @$a;
+	}
+	if (@$s) {
+		push @lines, sprintf('SUBTRACT (%d):', scalar @$s);
+		push @lines, map { '  - ' . _trackLabel($_) } @$s;
+	}
+	_notifyLines($request, \@lines);
+}
+
+# Resolve a Lyrion track ID to "Title - Artist". Falls back to the
+# bare ID if Lyrion can't find the track (e.g. ID stored from an
+# older library scan).
+sub _trackLabel {
+	my $id = shift // return '';
+	my $track = eval { Slim::Schema->find('Track', $id) };
+	return "id:$id" unless $track;
+	my $title  = _safeText($track->title       // '');
+	my $artist = _safeText($track->artistName  // '');
+	return $title || "id:$id" unless length $artist;
+	return ($title || '?') . ' - ' . $artist;
 }
 
 sub _alchemyReset {
@@ -505,7 +646,7 @@ sub _alchemyGenerate {
 	}
 	$request->setStatusProcessing;
 	Plugins::AudioMuseAI::API::alchemy(
-		$a, $s, _count(),
+		$a, $s, _count($client),
 		sub { _queueResults($request, $client, shift, 1) },
 		sub { _notifyError($request, shift) },
 	);
@@ -516,16 +657,6 @@ sub _alchemyList {
 	my $list = $prefs->client($client)->get($key);
 	$list = [] unless ref($list) eq 'ARRAY';
 	return $list;
-}
-
-sub _alchemyLine {
-	my ($label, $list) = @_;
-	my $count = scalar @$list;
-	return sprintf('%s (%d): —', $label, $count) unless $count;
-	my $shown = $count > 8 ? 8 : $count;
-	my $body  = join(',', @$list[0 .. $shown - 1]);
-	$body .= " (+@{[ $count - $shown ]} more)" if $count > $shown;
-	return sprintf('%s (%d): %s', $label, $count, $body);
 }
 
 # ----- Find Path ------------------------------------------------------------
@@ -689,6 +820,33 @@ sub _openMap {
 	]);
 }
 
+sub _savePlaylist {
+	my $request = shift;
+	my $client  = $request->client or return $request->setStatusBadParams;
+	my $name    = _trim($request->getParam('name') // '');
+	return _notify($request, string('PLUGIN_AUDIOMUSEAI_EMPTY_INPUT')) unless length $name;
+
+	# Reject control / path-injecting characters; Lyrion accepts most
+	# strings but it's polite to disallow ones that would be ugly on
+	# the file system.
+	$name =~ s/[\x00-\x1f\x7f]//g;
+	$name =~ s{[/\\]}{-}g;
+
+	my $count = Slim::Player::Playlist::count($client);
+	if (!$count) {
+		return _notify($request,
+			string('PLUGIN_AUDIOMUSEAI_PLAYLIST_EMPTY'));
+	}
+
+	$log->info("saving Lyrion queue ($count tracks) as playlist '$name' on " . $client->id);
+	Slim::Control::Request::executeRequest(
+		$client,
+		['playlist', 'save', $name]
+	);
+	_notify($request, sprintf('%s (%d tracks): %s',
+		string('PLUGIN_AUDIOMUSEAI_PLAYLIST_SAVED'), $count, $name));
+}
+
 sub _testResult {
 	my $request = shift;
 	my $val = $prefs->get('last_test_result') // '';
@@ -788,7 +946,17 @@ sub _normalizeUrl {
 }
 
 sub _count {
-	my $n = $prefs->get('default_count') // 25;
+	my $client = shift;
+	my $n;
+	# Prefer per-player override if explicitly set; else fall back to
+	# the global default. Per-player can be set via:
+	#   audiomuseai prefclient <playerid> default_count <n>
+	# (no UI yet — runs through Lyrion's standard pref CLI command.)
+	if ($client) {
+		my $v = $prefs->client($client)->get('default_count');
+		$n = $v if defined $v && $v ne '';
+	}
+	$n //= $prefs->get('default_count') // 25;
 	$n = COUNT_MIN if $n < COUNT_MIN;
 	$n = COUNT_MAX if $n > COUNT_MAX;
 	return $n;

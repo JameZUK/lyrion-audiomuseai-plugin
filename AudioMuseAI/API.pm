@@ -155,7 +155,16 @@ sub ping {
 
 sub active_tasks {
 	my ($cb_ok, $cb_err) = @_;
-	_get('/api/active_tasks', $cb_ok, $cb_err, TIMEOUT_FAST);
+	# 5s cache so the top-menu status header and inline error-with-status
+	# don't hammer the server when the user navigates quickly.
+	_get('/api/active_tasks', $cb_ok, $cb_err, TIMEOUT_FAST, 5);
+}
+
+# Synchronous peek into the active_tasks cache. Returns undef if no
+# fresh entry is available. Used by code paths that want to decorate
+# UI without waiting for a network round-trip.
+sub peek_active_tasks {
+	return $cache->get('get:' . _base() . '/api/active_tasks');
 }
 
 sub last_task {
