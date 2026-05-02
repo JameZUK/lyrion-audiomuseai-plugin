@@ -1,0 +1,92 @@
+PLUGIN_AUDIOMUSEAI
+	EN	AudioMuse-AI
+
+PLUGIN_AUDIOMUSEAI_DESC
+	EN	Browse and queue tracks using AudioMuse-AI's sonic similarity, sonic fingerprint, instant playlists, and song alchemy. Adds a top-level entry under My Music.
+
+PLUGIN_AUDIOMUSEAI_URL
+	EN	AudioMuse-AI server URL
+
+PLUGIN_AUDIOMUSEAI_URL_DESC
+	EN	Base URL of your AudioMuse-AI Flask container (e.g. http://localhost:8000). Do not include /api.
+
+PLUGIN_AUDIOMUSEAI_TOKEN
+	EN	API token
+
+PLUGIN_AUDIOMUSEAI_TOKEN_DESC
+	EN	Bearer token for AudioMuse-AI. Generate one in the AudioMuse web UI under Administration. Leave blank if AUTH_ENABLED is false on the server.
+
+PLUGIN_AUDIOMUSEAI_DEFAULT_COUNT
+	EN	Default number of tracks to return
+
+PLUGIN_AUDIOMUSEAI_DEFAULT_COUNT_DESC
+	EN	How many tracks AudioMuse should return for similarity / sonic-fingerprint / instant-playlist queries. Range 5–100.
+
+PLUGIN_AUDIOMUSEAI_DSTM
+	EN	Auto-extend the queue (Don't Stop The Music)
+
+PLUGIN_AUDIOMUSEAI_DSTM_DESC
+	EN	When the player's queue runs low, automatically add more similar tracks based on the most recently played song.
+
+PLUGIN_AUDIOMUSEAI_TEST_CONNECTION
+	EN	Test connection
+
+PLUGIN_AUDIOMUSEAI_CONNECTION_OK
+	EN	✓ Connected to AudioMuse-AI
+
+PLUGIN_AUDIOMUSEAI_CONNECTION_FAIL
+	EN	✗ Could not reach AudioMuse-AI:
+
+PLUGIN_AUDIOMUSEAI_MENU_SIMILAR_NOW
+	EN	Similar to current track
+
+PLUGIN_AUDIOMUSEAI_MENU_SIMILAR_SONG
+	EN	Similar to song...
+
+PLUGIN_AUDIOMUSEAI_MENU_SIMILAR_ARTIST
+	EN	Similar to artist...
+
+PLUGIN_AUDIOMUSEAI_MENU_FINGERPRINT
+	EN	Sonic Fingerprint
+
+PLUGIN_AUDIOMUSEAI_MENU_INSTANT
+	EN	Instant Playlist (text prompt)
+
+PLUGIN_AUDIOMUSEAI_MENU_ALCHEMY
+	EN	Song Alchemy
+
+PLUGIN_AUDIOMUSEAI_MENU_FINDPATH
+	EN	Find Path between songs
+
+PLUGIN_AUDIOMUSEAI_MENU_OPEN_MAP
+	EN	Open Music Map (web UI)
+
+PLUGIN_AUDIOMUSEAI_MENU_DYNAMIC
+	EN	Dynamic Playlists
+
+PLUGIN_AUDIOMUSEAI_MENU_DYNAMIC_SIMILAR
+	EN	Continuous similar to current track
+
+PLUGIN_AUDIOMUSEAI_MENU_DYNAMIC_FINGERPRINT
+	EN	Continuous from sonic fingerprint
+
+PLUGIN_AUDIOMUSEAI_MENU_SETTINGS
+	EN	Settings
+
+PLUGIN_AUDIOMUSEAI_PROMPT_INSTANT
+	EN	Describe the playlist (e.g. low-energy late-night ambient)
+
+PLUGIN_AUDIOMUSEAI_NOTHING_PLAYING
+	EN	Nothing is currently playing.
+
+PLUGIN_AUDIOMUSEAI_NO_RESULTS
+	EN	No similar tracks returned.
+
+PLUGIN_AUDIOMUSEAI_UNAVAILABLE
+	EN	Similarity service not ready (analysis or clustering may not be complete).
+
+PLUGIN_AUDIOMUSEAI_QUEUED
+	EN	Queued tracks from AudioMuse-AI.
+
+PLUGIN_AUDIOMUSEAI_FETCHING
+	EN	Asking AudioMuse-AI...

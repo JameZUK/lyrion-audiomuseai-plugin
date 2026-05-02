@@ -1,0 +1,18 @@
+<?xml version='1.0'?>
+<extension>
+	<id>com.jmuk.lyrion.audiomuseai</id>
+	<name>PLUGIN_AUDIOMUSEAI</name>
+	<module>Plugins::AudioMuseAI::Plugin</module>
+	<version>0.1.0</version>
+	<description>PLUGIN_AUDIOMUSEAI_DESC</description>
+	<creator>James (jmuk.net)</creator>
+	<optionsURL>plugins/AudioMuseAI/settings/basic.html</optionsURL>
+	<homepageURL>https://github.com/NeptuneHub/AudioMuse-AI</homepageURL>
+	<defaultState>enabled</defaultState>
+	<playerMenu>BROWSE_MUSIC</playerMenu>
+	<targetApplication>
+		<id>Lyrion Music Server</id>
+		<minVersion>8.0</minVersion>
+		<maxVersion>*</maxVersion>
+	</targetApplication>
+</extension>

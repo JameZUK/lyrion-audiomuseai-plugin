@@ -1,0 +1,49 @@
+[% PROCESS settings/header.html %]
+
+<div class="prefsLine">
+	<div class="prefsLabel">[% "PLUGIN_AUDIOMUSEAI_URL" | string %]</div>
+	<div class="prefsDesc">[% "PLUGIN_AUDIOMUSEAI_URL_DESC" | string %]</div>
+	<div class="prefsValue">
+		<input type="text" name="pref_url" value="[% prefs.url | html %]" size="60" />
+	</div>
+</div>
+
+<div class="prefsLine">
+	<div class="prefsLabel">[% "PLUGIN_AUDIOMUSEAI_TOKEN" | string %]</div>
+	<div class="prefsDesc">[% "PLUGIN_AUDIOMUSEAI_TOKEN_DESC" | string %]</div>
+	<div class="prefsValue">
+		<input type="password" name="pref_token" value="[% prefs.token | html %]" size="60" autocomplete="off" />
+	</div>
+</div>
+
+<div class="prefsLine">
+	<div class="prefsLabel">[% "PLUGIN_AUDIOMUSEAI_DEFAULT_COUNT" | string %]</div>
+	<div class="prefsDesc">[% "PLUGIN_AUDIOMUSEAI_DEFAULT_COUNT_DESC" | string %]</div>
+	<div class="prefsValue">
+		<input type="number" name="pref_default_count" value="[% prefs.default_count | html %]" min="5" max="100" />
+	</div>
+</div>
+
+<div class="prefsLine">
+	<div class="prefsLabel">[% "PLUGIN_AUDIOMUSEAI_DSTM" | string %]</div>
+	<div class="prefsDesc">[% "PLUGIN_AUDIOMUSEAI_DSTM_DESC" | string %]</div>
+	<div class="prefsValue">
+		<input type="checkbox" name="pref_dstm_enabled" value="1" [% IF prefs.dstm_enabled %]checked="checked"[% END %] />
+	</div>
+</div>
+
+<div class="prefsLine">
+	<div class="prefsLabel">[% "PLUGIN_AUDIOMUSEAI_TEST_CONNECTION" | string %]</div>
+	<div class="prefsValue">
+		<input type="submit" name="test_connection" value="[% 'PLUGIN_AUDIOMUSEAI_TEST_CONNECTION' | string %]" />
+		[% IF test_result == 'ok' %]
+			<span style="color: green; margin-left: 1em;">[% "PLUGIN_AUDIOMUSEAI_CONNECTION_OK" | string %]</span>
+		[% ELSIF test_result.match('^fail') %]
+			<span style="color: red; margin-left: 1em;">[% "PLUGIN_AUDIOMUSEAI_CONNECTION_FAIL" | string %] [% test_result.replace('^fail: ?', '') | html %]</span>
+		[% ELSIF test_result == 'in_progress' %]
+			<span style="color: gray; margin-left: 1em;">…</span>
+		[% END %]
+	</div>
+</div>
+
+[% PROCESS settings/footer.html %]
