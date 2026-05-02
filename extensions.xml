@@ -2,16 +2,16 @@
 <extensions>
 	<details>
 		<title lang="EN">JameZUK AudioMuse-AI Plugin Repository</title>
-		<description lang="EN">Lyrion plugin for AudioMuse-AI sonic similarity and dynamic playlists.</description>
+		<description lang="EN">Lyrion plugin for AudioMuse-AI sonic similarity, dynamic playlists, alchemy, pathfinding, and admin controls.</description>
 	</details>
 	<plugins>
-		<plugin name="AudioMuseAI" version="0.1.0" minTarget="8.0" maxTarget="*">
+		<plugin name="AudioMuseAI" version="0.2.0" minTarget="8.0" maxTarget="*">
 			<title lang="EN">AudioMuse-AI</title>
-			<description lang="EN">Adds an AudioMuse-AI entry under My Music with sonic similarity, sonic fingerprint, instant text-prompt playlists, song alchemy hooks, and DSTM-style auto-extend. Requires a self-hosted AudioMuse-AI instance.</description>
+			<description lang="EN">Adds an AudioMuse-AI entry under My Music with sonic similarity, sonic fingerprint, instant text-prompt playlists, mood presets, song alchemy, find path between songs, dynamic playlists with auto-extend, and server admin controls. Requires a self-hosted AudioMuse-AI instance.</description>
 			<creator>JameZUK</creator>
 			<email>spam@jmuk.net</email>
-			<url>https://github.com/JameZUK/lyrion-audiomuseai-plugin/releases/download/v0.1.0/AudioMuseAI-v0.1.0.zip</url>
-			<sha>93fc5073a8e4f66ef65c101f1eb414ced65362ba</sha>
+			<url>https://github.com/JameZUK/lyrion-audiomuseai-plugin/releases/download/v0.2.0/AudioMuseAI-v0.2.0.zip</url>
+			<sha>43132dd56e587502c3e9ad650b9fef402557bdf9</sha>
 			<link>https://github.com/JameZUK/lyrion-audiomuseai-plugin</link>
 		</plugin>
 	</plugins>

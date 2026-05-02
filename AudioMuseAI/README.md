@@ -37,7 +37,7 @@ If Lyrion is in a Docker/LXC, copy the directory in and restart the container.
 
 After restart:
 
-1. Open Lyrion's web UI (`http://localhost:9000`).
+1. Open Lyrion's web UI.
 2. **Settings → Plugins** — confirm AudioMuse-AI is enabled.
 3. **Settings → Advanced → AudioMuse-AI** (or **Plugins** tab) — set:
    - **AudioMuse-AI server URL**: `http://localhost:8000`
