@@ -473,10 +473,10 @@ sub _alchemyShow {
 	if (!@$a && !@$s) {
 		return _notify($request, string('PLUGIN_AUDIOMUSEAI_ALCHEMY_EMPTY'));
 	}
-	my $msg = sprintf("ADD (%d): %s\nSUBTRACT (%d): %s",
-		scalar @$a, join(',', @$a) || '—',
-		scalar @$s, join(',', @$s) || '—');
-	_notify($request, $msg);
+	_notifyLines($request, [
+		sprintf("ADD (%d): %s", scalar @$a, join(',', @$a) || '—'),
+		sprintf("SUBTRACT (%d): %s", scalar @$s, join(',', @$s) || '—'),
+	]);
 }
 
 sub _alchemyReset {
@@ -612,21 +612,28 @@ sub _statusLast {
 
 sub _statusFormat {
 	my ($request, $data) = @_;
-	# Render the most useful keys verbatim. Long log arrays get last-line only.
-	my $details = ref($data) eq 'HASH' ? ($data->{details} // $data) : $data;
+	# Render the most useful keys verbatim. Top-level fields first
+	# (status, task_type, task_id), then details. Arrays collapsed to
+	# last entry / count.
 	my @lines;
-	if (ref($details) eq 'HASH') {
-		for my $k (sort keys %$details) {
-			my $v = $details->{$k};
-			if (ref($v) eq 'ARRAY') {
-				$v = $v->[-1] // '';
-				$v = "(...) " . $v if @{$details->{$k}} > 1;
+	if (ref($data) eq 'HASH') {
+		for my $k (qw(status task_type task_id)) {
+			push @lines, "$k: $data->{$k}" if defined $data->{$k} && !ref($data->{$k});
+		}
+		my $details = $data->{details};
+		if (ref($details) eq 'HASH') {
+			for my $k (sort keys %$details) {
+				my $v = $details->{$k};
+				if (ref($v) eq 'ARRAY') {
+					my $n = scalar @$v;
+					my $last = $v->[-1] // '';
+					$v = $n > 1 ? "[$n entries] $last" : "$last";
+				}
+				push @lines, "$k: $v" if defined $v && !ref($v);
 			}
-			push @lines, "$k: $v" if defined $v && !ref($v);
 		}
 	}
-	@lines = ('No status returned.') unless @lines;
-	_notify($request, join("\n", @lines));
+	_notifyLines($request, \@lines);
 }
 
 sub _runAnalysis {
@@ -650,7 +657,10 @@ sub _runClustering {
 sub _openMap {
 	my $request = shift;
 	my $url = ($prefs->get('url') || '') . '/';
-	_notify($request, string('PLUGIN_AUDIOMUSEAI_MENU_OPEN_MAP') . ":\n$url");
+	_notifyLines($request, [
+		string('PLUGIN_AUDIOMUSEAI_MENU_OPEN_MAP') . ':',
+		$url,
+	]);
 }
 
 # ===========================================================================
@@ -719,6 +729,16 @@ sub _emit {
 sub _notify {
 	my ($request, $msg) = @_;
 	_emit($request, [{ text => $msg }]);
+}
+
+# Emit each line as its own menu item — Jive controllers typically render
+# a menu item's `text` as a single line, so embedded \n in _notify() get
+# truncated or stripped. Use this when there are multiple status lines.
+sub _notifyLines {
+	my ($request, $lines) = @_;
+	$lines ||= [];
+	$lines = [ 'No status returned.' ] unless @$lines;
+	_emit($request, [ map { { text => $_ } } @$lines ]);
 }
 
 sub _notifyError {
