@@ -1,5 +1,53 @@
 [% PROCESS settings/header.html %]
 
+<style>
+/* All styling is theme-agnostic: uses currentColor and rgba neutral
+   greys so the panel adapts to whichever Lyrion skin / theme is
+   loaded (default light, Material light, Material dark, etc.).
+   No fixed background or text colors. */
+.am-status-box {
+	font-family: monospace;
+	font-size: 0.9em;
+	line-height: 1.5;
+	padding: 0.6em 0.8em;
+	border-radius: 4px;
+	color: inherit;
+	background: rgba(127, 127, 127, 0.10);
+	border: 1px solid rgba(127, 127, 127, 0.35);
+}
+.am-status-box .am-row {
+	display: block;
+}
+.am-status-box .am-label {
+	display: inline-block;
+	min-width: 7em;
+	opacity: 0.65;
+}
+.am-status-box .am-muted {
+	opacity: 0.75;
+}
+.am-status-box .am-headline {
+	font-weight: bold;
+	margin-bottom: 0.3em;
+}
+.am-status-box .am-divider {
+	margin-top: 0.5em;
+	border-top: 1px solid rgba(127, 127, 127, 0.25);
+	padding-top: 0.5em;
+}
+/* Result / error colors: chosen to be readable on both light and
+   dark backgrounds. Avoid pure red/green which can blend on dark
+   surfaces. */
+.am-ok    { color: #2ea043; }   /* a tad lighter than 'green' */
+.am-fail  { color: #f85149; }   /* a tad brighter than 'red' */
+.am-info  { opacity: 0.65; }
+.am-section-divider {
+	margin-top: 1.5em;
+	padding-top: 1em;
+	border-top: 1px solid rgba(127, 127, 127, 0.25);
+}
+</style>
+
 <div class="prefsLine">
 	<div class="prefsLabel">[% "PLUGIN_AUDIOMUSEAI_URL" | string %]</div>
 	<div class="prefsDesc">[% "PLUGIN_AUDIOMUSEAI_URL_DESC" | string %]</div>
@@ -44,17 +92,17 @@
 			data-msg-timeout="[% 'PLUGIN_AUDIOMUSEAI_TEST_TIMEOUT' | string | html %]"
 			style="margin-left: 1em;">
 			[% IF test_result == 'ok' %]
-				<span style="color: green;">[% "PLUGIN_AUDIOMUSEAI_CONNECTION_OK" | string %]</span>
+				<span class="am-ok">[% "PLUGIN_AUDIOMUSEAI_CONNECTION_OK" | string %]</span>
 			[% ELSIF test_result.match('^fail') %]
-				<span style="color: red;">[% "PLUGIN_AUDIOMUSEAI_CONNECTION_FAIL" | string %] [% test_result.replace('^fail:\s*', '') | html %]</span>
+				<span class="am-fail">[% "PLUGIN_AUDIOMUSEAI_CONNECTION_FAIL" | string %] [% test_result.replace('^fail:\s*', '') | html %]</span>
 			[% ELSIF test_result == 'in_progress' %]
-				<span style="color: gray;">[% "PLUGIN_AUDIOMUSEAI_TEST_TESTING" | string %]</span>
+				<span class="am-info">[% "PLUGIN_AUDIOMUSEAI_TEST_TESTING" | string %]</span>
 			[% END %]
 		</span>
 	</div>
 </div>
 
-<div class="prefsLine" style="margin-top: 1.5em; border-top: 1px solid #ccc; padding-top: 1em;">
+<div class="prefsLine am-section-divider">
 	<div class="prefsLabel">
 		[% "PLUGIN_AUDIOMUSEAI_SERVER_STATUS" | string %]
 		<button type="button" id="amStatusRefresh" style="margin-left: 1em;">
@@ -62,7 +110,7 @@
 		</button>
 	</div>
 	<div class="prefsValue">
-		<div id="amServerStatus"
+		<div id="amServerStatus" class="am-status-box"
 			data-msg-loading="[% 'PLUGIN_AUDIOMUSEAI_STATUS_LOADING' | string | html %]"
 			data-msg-unreachable="[% 'PLUGIN_AUDIOMUSEAI_STATUS_UNREACHABLE' | string | html %]"
 			data-msg-idle="[% 'PLUGIN_AUDIOMUSEAI_STATUS_IDLE' | string | html %]"
@@ -72,9 +120,8 @@
 			data-lbl-task-id="[% 'PLUGIN_AUDIOMUSEAI_LBL_TASK_ID' | string | html %]"
 			data-lbl-albums="[% 'PLUGIN_AUDIOMUSEAI_LBL_ALBUMS' | string | html %]"
 			data-lbl-last-log="[% 'PLUGIN_AUDIOMUSEAI_LBL_LAST_LOG' | string | html %]"
-			data-lbl-server="[% 'PLUGIN_AUDIOMUSEAI_LBL_SERVER' | string | html %]"
-			style="font-family: monospace; font-size: 0.9em; line-height: 1.5; padding: 0.5em; background: #f6f6f6; border: 1px solid #ddd; border-radius: 3px;">
-			<em>Loading…</em>
+			data-lbl-server="[% 'PLUGIN_AUDIOMUSEAI_LBL_SERVER' | string | html %]">
+			<em class="am-info">[% 'PLUGIN_AUDIOMUSEAI_STATUS_LOADING' | string %]</em>
 		</div>
 	</div>
 </div>
@@ -91,20 +138,20 @@
 		var poll = setInterval(function() {
 			if (++attempts > 60) {
 				clearInterval(poll);
-				renderTest('red', msgTimeout);
+				renderTest('am-fail', msgTimeout);
 				return;
 			}
 			rpc(['audiomuseai', 'test_result'], function(r) {
 				var val = (r && r.value) || '';
 				if (!val || val === 'in_progress') return;
 				clearInterval(poll);
-				if (val === 'ok') renderTest('green', msgOk);
-				else renderTest('red', msgFail + ' ' + val.replace(/^fail:\s*/, ''));
+				if (val === 'ok') renderTest('am-ok', msgOk);
+				else renderTest('am-fail', msgFail + ' ' + val.replace(/^fail:\s*/, ''));
 			});
 		}, 500);
-		function renderTest(color, text) {
+		function renderTest(cls, text) {
 			var span = document.createElement('span');
-			span.style.color = color;
+			span.className = cls;
 			span.textContent = text;
 			testEl.innerHTML = '';
 			testEl.appendChild(span);
@@ -127,7 +174,7 @@
 
 		var refreshTimer = null;
 		var refreshCount = 0;
-		var REFRESH_MAX  = 360;        // 1h at 10s
+		var REFRESH_MAX  = 360;
 
 		function fetchStatus() {
 			if (refreshTimer) { clearTimeout(refreshTimer); refreshTimer = null; }
@@ -139,7 +186,7 @@
 		function renderUnreachable(err) {
 			statusEl.innerHTML = '';
 			var p = document.createElement('div');
-			p.style.color = 'red';
+			p.className = 'am-fail';
 			p.textContent = msgUnreachable + ' ' + err;
 			statusEl.appendChild(p);
 		}
@@ -148,14 +195,13 @@
 			statusEl.innerHTML = '';
 			r = r || {};
 
-			// Server URL line is shown in both reachable / unreachable cases.
 			if (r.url) {
-				appendRow(lblServer, r.url, '#666');
+				appendRow(lblServer, r.url, true);
 			}
 
 			if (!r.reachable) {
 				var p = document.createElement('div');
-				p.style.color = 'red';
+				p.className = 'am-fail';
 				p.style.marginTop = '0.4em';
 				p.textContent = msgUnreachable + ' ' + (r.error || 'unknown');
 				statusEl.appendChild(p);
@@ -165,7 +211,7 @@
 			var hasTask = r.status && String(r.status).length;
 			if (!hasTask) {
 				var d = document.createElement('div');
-				d.style.color = 'green';
+				d.className = 'am-ok';
 				d.style.marginTop = '0.4em';
 				d.textContent = '✓ ' + msgIdle;
 				statusEl.appendChild(d);
@@ -174,9 +220,8 @@
 
 			if (r.status_message) {
 				var em = document.createElement('div');
-				em.style.fontWeight = 'bold';
-				em.style.marginTop  = '0.4em';
-				em.textContent      = r.status_message;
+				em.className = 'am-headline';
+				em.textContent = r.status_message;
 				statusEl.appendChild(em);
 			}
 
@@ -195,35 +240,31 @@
 					' · to process ' + (r.albums_to_process || '0'));
 			}
 			if (r.task_id) {
-				appendRow(lblTaskId, r.task_id, '#666');
+				appendRow(lblTaskId, r.task_id, true);
 			}
 			if (r.last_log) {
-				appendRow(lblLastLog, r.last_log, '#666');
+				appendRow(lblLastLog, r.last_log, true);
 			}
 
-			// Auto-refresh while a task is running (and we haven't hit the cap).
 			if (/^(PROGRESS|STARTED|PENDING)$/i.test(r.status) &&
 				++refreshCount <= REFRESH_MAX) {
 				refreshTimer = setTimeout(fetchStatus, 10000);
 			}
 		}
 
-		function appendRow(label, value, color) {
+		function appendRow(label, value, muted) {
 			var row = document.createElement('div');
+			row.className = 'am-row' + (muted ? ' am-muted' : '');
 			var lab = document.createElement('span');
-			lab.style.display = 'inline-block';
-			lab.style.minWidth = '7em';
-			lab.style.color = '#888';
+			lab.className = 'am-label';
 			lab.textContent = label + ':';
 			var val = document.createElement('span');
 			val.textContent = String(value);
-			if (color) val.style.color = color;
 			row.appendChild(lab);
 			row.appendChild(val);
 			statusEl.appendChild(row);
 		}
 
-		// Initial fetch + manual refresh button
 		fetchStatus();
 		var btn = document.getElementById('amStatusRefresh');
 		if (btn) btn.addEventListener('click', function() {

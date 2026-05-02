@@ -17,7 +17,7 @@ use Plugins::AudioMuseAI::API;
 use Slim::Schema;
 
 use constant {
-	VERSION             => '0.2.8',
+	VERSION             => '0.2.9',
 	HEALTHCHECK_DELAY   => 5,
 	# Cap search-result menus to keep the UI navigable on hardware
 	# controllers; AudioMuse can return hundreds of tracks for prolific
@@ -77,6 +77,10 @@ sub initPlugin {
 		[0, 1, 1, \&_menuStatus]);
 	Slim::Control::Request::addDispatch(['audiomuseai', 'menu_instant'],
 		[1, 1, 1, \&_menuInstant]);
+	Slim::Control::Request::addDispatch(['audiomuseai', 'menu_similar_song'],
+		[1, 1, 1, \&_menuSimilarSong]);
+	Slim::Control::Request::addDispatch(['audiomuseai', 'menu_similar_artist'],
+		[1, 1, 1, \&_menuSimilarArtist]);
 
 	# Direct actions ---------------------------------------------------------
 	Slim::Control::Request::addDispatch(['audiomuseai', 'similar_now'],
@@ -221,13 +225,15 @@ sub _topMenu {
 	push @menu, _actionItem('PLUGIN_AUDIOMUSEAI_MENU_SIMILAR_NOW',
 		['audiomuseai', 'similar_now'], 1);
 
-	push @menu, _textInputItem('PLUGIN_AUDIOMUSEAI_MENU_SIMILAR_SONG',
-		'PLUGIN_AUDIOMUSEAI_PROMPT_SONG_ARTIST',
-		['audiomuseai', 'similar_song_search'], 'artist');
+	# Both Similar-to-song and Similar-to-artist now open submenus that
+	# combine a 'Type custom...' text input with a pickable list of
+	# artists from the user's Lyrion library, so they don't have to
+	# type if their target is already in the library.
+	push @menu, _submenuItem('PLUGIN_AUDIOMUSEAI_MENU_SIMILAR_SONG',
+		['audiomuseai', 'menu_similar_song']);
 
-	push @menu, _textInputItem('PLUGIN_AUDIOMUSEAI_MENU_SIMILAR_ARTIST',
-		'PLUGIN_AUDIOMUSEAI_PROMPT_ARTIST',
-		['audiomuseai', 'similar_artist'], 'artist');
+	push @menu, _submenuItem('PLUGIN_AUDIOMUSEAI_MENU_SIMILAR_ARTIST',
+		['audiomuseai', 'menu_similar_artist']);
 
 	push @menu, _actionItem('PLUGIN_AUDIOMUSEAI_MENU_FINGERPRINT',
 		['audiomuseai', 'sonic_fp'], 1);
@@ -363,6 +369,77 @@ sub _menuDynamic {
 		_actionItem('PLUGIN_AUDIOMUSEAI_DYNAMIC_STOP',
 			['audiomuseai', 'dyn_stop'], 1),
 	]);
+}
+
+sub _menuSimilarSong {
+	my $request = shift;
+	my $client  = $request->client or return $request->setStatusBadParams;
+	my @menu;
+	push @menu, _textInputItem('PLUGIN_AUDIOMUSEAI_PICK_TYPE_ARTIST',
+		'PLUGIN_AUDIOMUSEAI_PROMPT_SONG_ARTIST',
+		['audiomuseai', 'similar_song_search'], 'artist');
+	# Library artists drilled into the same dispatcher: tap an artist
+	# to see their tracks, then tap a track to get sonic neighbours.
+	for my $name (@{ _libraryArtists(MAX_PICK_RESULTS) }) {
+		push @menu, _libraryArtistItem($name,
+			['audiomuseai', 'similar_song_search']);
+	}
+	_emit($request, \@menu);
+}
+
+sub _menuSimilarArtist {
+	my $request = shift;
+	my $client  = $request->client or return $request->setStatusBadParams;
+	my @menu;
+	push @menu, _textInputItem('PLUGIN_AUDIOMUSEAI_PICK_TYPE_ARTIST',
+		'PLUGIN_AUDIOMUSEAI_PROMPT_ARTIST',
+		['audiomuseai', 'similar_artist'], 'artist');
+	for my $name (@{ _libraryArtists(MAX_PICK_RESULTS) }) {
+		push @menu, _libraryArtistItem($name,
+			['audiomuseai', 'similar_artist']);
+	}
+	_emit($request, \@menu);
+}
+
+# Returns up to $limit artist names from Lyrion's library, alphabetically
+# (using Lyrion's own native sort so accents / articles are handled
+# consistently with the rest of the controller UI). Backed by Lyrion's
+# built-in 'artists' CLI which is in-process and cached internally.
+sub _libraryArtists {
+	my $limit = shift // MAX_PICK_RESULTS;
+	my @out;
+	eval {
+		my $req = Slim::Control::Request::executeRequest(
+			undef,
+			['artists', '0', "$limit"]
+		);
+		return unless $req;
+		my $loop = $req->getResult('artists_loop') || [];
+		for my $a (@$loop) {
+			my $name = $a->{artist} // $a->{name};
+			next unless defined $name && length $name;
+			push @out, $name;
+		}
+	};
+	if ($@) {
+		$log->warn("library artist lookup failed: $@");
+	}
+	return \@out;
+}
+
+sub _libraryArtistItem {
+	my ($artistName, $cmd) = @_;
+	return {
+		text    => _safeText($artistName),
+		actions => {
+			go => {
+				cmd    => $cmd,
+				player => 1,
+				params => { artist => "$artistName" },
+			},
+		},
+		nextWindow => 'refresh',
+	};
 }
 
 sub _menuInstant {
