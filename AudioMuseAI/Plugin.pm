@@ -14,7 +14,7 @@ use Slim::Utils::Timers;
 use Plugins::AudioMuseAI::API;
 
 use constant {
-	VERSION             => '0.2.6',
+	VERSION             => '0.2.7',
 	HEALTHCHECK_DELAY   => 5,
 	# Cap search-result menus to keep the UI navigable on hardware
 	# controllers; AudioMuse can return hundreds of tracks for prolific
@@ -220,8 +220,23 @@ sub _topMenu {
 		['audiomuseai', 'menu_dynamic']);
 	push @menu, _submenuItem('PLUGIN_AUDIOMUSEAI_MENU_STATUS',
 		['audiomuseai', 'menu_status']);
-	push @menu, _actionItem('PLUGIN_AUDIOMUSEAI_MENU_OPEN_MAP',
-		['audiomuseai', 'open_map'], 0);
+
+	# Open Music Map: build directly as a weblink-bearing item. Lyrion
+	# controllers that recognise `weblink` (default web UI, Material Skin,
+	# iPeng) will treat this as a clickable link to the AudioMuse web UI.
+	# The fallback _openMap dispatch is kept so older controllers that
+	# only honour `actions.go` still get something useful.
+	my $url = ($prefs->get('url') || '') . '/';
+	push @menu, {
+		text    => string('PLUGIN_AUDIOMUSEAI_MENU_OPEN_MAP'),
+		weblink => $url,
+		actions => {
+			go => {
+				cmd    => ['audiomuseai', 'open_map'],
+				player => 0,
+			},
+		},
+	};
 
 	_emit($request, \@menu);
 }
@@ -733,6 +748,34 @@ sub _trim {
 	return $s;
 }
 
+# Make a string safe to put into a Jive menu item's `text` field across
+# different Lyrion skins. Some renderers treat the text as HTML; some as
+# plain text. We:
+#   - decode pre-existing HTML entities (in case upstream double-encoded);
+#   - strip any HTML tags;
+#   - replace stray ampersands with the unicode ampersand variant so we
+#     don't leave half-entities that an HTML renderer might mangle;
+#   - normalise whitespace.
+sub _safeText {
+	my $s = shift;
+	return '' unless defined $s;
+	# Decode common entities.
+	$s =~ s/&amp;/&/g;
+	$s =~ s/&lt;/</g;
+	$s =~ s/&gt;/>/g;
+	$s =~ s/&quot;/"/g;
+	$s =~ s/&#39;|&apos;/'/g;
+	# Numeric entities (decimal and hex).
+	$s =~ s/&#(\d+);/chr($1)/ge;
+	$s =~ s/&#x([0-9a-fA-F]+);/chr(hex($1))/ge;
+	# Strip any HTML tags that snuck through.
+	$s =~ s/<[^>]+>//g;
+	# Collapse whitespace and trim.
+	$s =~ s/\s+/ /g;
+	$s = _trim($s);
+	return $s;
+}
+
 # Validate / normalize the URL pref. Strips trailing slashes, adds http://
 # when no scheme is present, rejects nothing (we'd rather hit the API and
 # surface its error than silently refuse to call).
@@ -813,8 +856,13 @@ sub _tracksAsPickMenu {
 		next unless defined $tid && length $tid;
 		my $title  = _trim($t->{title}  // '');
 		my $author = _trim($t->{author} // $t->{album_artist} // '');
-		my $label  = $title || '?';
-		$label .= ' — ' . $author if length $author;
+		# Use ASCII separator and decode any HTML entities the upstream
+		# API may have applied — some Lyrion skins HTML-render menu text,
+		# and an unescaped & or stray entity can show as raw markup.
+		my $label  = _safeText($title || '?');
+		if (length $author) {
+			$label .= ' - ' . _safeText($author);
+		}
 		push @items, {
 			text    => $label,
 			actions => {
@@ -859,11 +907,21 @@ sub _notifyLines {
 sub _notifyError {
 	my ($request, $err) = @_;
 	$err //= 'Unknown error';
+
+	# For "busy" / "unavailable" errors, fetch live server state so the
+	# user sees what AudioMuse is *actually* doing rather than a
+	# go-look-at-the-status-page nudge. The response is async-driven via
+	# active_tasks and renders alongside the human-readable error.
 	if ($err =~ /\b409\b/ || $err =~ /conflict/i) {
-		_notify($request, string('PLUGIN_AUDIOMUSEAI_BUSY'));
-	} elsif ($err =~ /\b503\b/ || $err =~ /unavailable/i) {
-		_notify($request, string('PLUGIN_AUDIOMUSEAI_UNAVAILABLE'));
-	} elsif ($err =~ /\b401\b|\b403\b/ || $err =~ /unauthor/i || $err =~ /forbidden/i) {
+		return _notifyErrorWithStatus($request,
+			string('PLUGIN_AUDIOMUSEAI_BUSY'));
+	}
+	if ($err =~ /\b503\b/ || $err =~ /unavailable/i) {
+		return _notifyErrorWithStatus($request,
+			string('PLUGIN_AUDIOMUSEAI_UNAVAILABLE'));
+	}
+
+	if ($err =~ /\b401\b|\b403\b/ || $err =~ /unauthor/i || $err =~ /forbidden/i) {
 		_notify($request, string('PLUGIN_AUDIOMUSEAI_AUTH_FAIL'));
 	} elsif ($err =~ /timeout/i) {
 		_notify($request, string('PLUGIN_AUDIOMUSEAI_TIMEOUT'));
@@ -872,6 +930,37 @@ sub _notifyError {
 	} else {
 		_notify($request, string('PLUGIN_AUDIOMUSEAI_GENERIC_ERROR') . " $err");
 	}
+}
+
+sub _notifyErrorWithStatus {
+	my ($request, $headline) = @_;
+	# active_tasks is cheap (often cached 5s) so this is OK to fire
+	# from inside an error path.
+	Plugins::AudioMuseAI::API::active_tasks(
+		sub {
+			my $data    = shift;
+			my $details = (ref($data) eq 'HASH' ? $data->{details} : undef) || {};
+			my @lines = ($headline);
+			if (ref($data) eq 'HASH' && %$data) {
+				push @lines, $details->{status_message}
+					if $details->{status_message};
+				my @hdr;
+				push @hdr, "state: $data->{status}"  if defined $data->{status};
+				push @hdr, "type: $data->{task_type}" if defined $data->{task_type};
+				push @lines, join(' · ', @hdr) if @hdr;
+				push @lines, "progress: $data->{progress}%"
+					if defined $data->{progress} && $data->{progress} ne '';
+				push @lines, 'running: ' . _fmtDuration($data->{running_time_seconds})
+					if defined $data->{running_time_seconds}
+					&& $data->{running_time_seconds};
+			}
+			_notifyLines($request, \@lines);
+		},
+		sub {
+			# Status fetch failed too — just show the original headline.
+			_notify($request, $headline);
+		},
+	);
 }
 
 sub _fmtDuration {
@@ -904,7 +993,10 @@ sub _queueResults {
 		$client,
 		['playlistcontrol', "cmd:$cmd", 'track_id:' . join(',', @ids)]
 	);
-	_notify($request, string('PLUGIN_AUDIOMUSEAI_QUEUED'));
+	# Compact summary: "Queued 25 tracks (replace queue)" / "...append".
+	my $verb = $loadFresh ? 'replaced queue' : 'appended to queue';
+	_notify($request, sprintf('%s — %d tracks %s.',
+		string('PLUGIN_AUDIOMUSEAI_QUEUED'), scalar @ids, $verb));
 }
 
 # Subscriber: track newly playing songs and auto-extend if a DSTM mode is active.
