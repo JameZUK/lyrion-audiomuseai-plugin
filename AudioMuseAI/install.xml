@@ -3,10 +3,11 @@
 	<id>com.jmuk.lyrion.audiomuseai</id>
 	<name>PLUGIN_AUDIOMUSEAI</name>
 	<module>Plugins::AudioMuseAI::Plugin</module>
-	<version>0.2.12</version>
+	<version>0.2.13</version>
 	<description>PLUGIN_AUDIOMUSEAI_DESC</description>
 	<creator>James (jmuk.net)</creator>
 	<optionsURL>plugins/AudioMuseAI/settings/basic.html</optionsURL>
+	<icon>plugins/AudioMuseAI/html/images/icon.png</icon>
 	<homepageURL>https://github.com/NeptuneHub/AudioMuse-AI</homepageURL>
 	<defaultState>enabled</defaultState>
 	<playerMenu>BROWSE_MUSIC</playerMenu>

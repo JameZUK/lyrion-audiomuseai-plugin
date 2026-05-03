@@ -24,7 +24,7 @@ use Slim::Menu::TrackInfo;
 use Slim::Menu::AlbumInfo;
 
 use constant {
-	VERSION             => '0.2.12',
+	VERSION             => '0.2.13',
 	HEALTHCHECK_DELAY   => 5,
 	# Cap search-result menus to keep the UI navigable on hardware
 	# controllers; AudioMuse can return hundreds of tracks for prolific
@@ -179,19 +179,22 @@ sub initPlugin {
 	Slim::Control::Request::addDispatch(['audiomuseai', 'server_status'],
 		[0, 1, 1, \&_serverStatus]);
 
-	# Top-level menu under My Music.
+	# Top-level menu under My Music. The 'icon' field is honoured by
+	# Material, default web UI, iPeng, and Squeezer (where it shows
+	# next to the menu entry under My Music).
 	my @items = ({
 		text    => string('PLUGIN_AUDIOMUSEAI'),
 		id      => 'pluginAudioMuseAI',
 		weight  => 80,
 		node    => 'myMusic',
+		icon    => 'plugins/AudioMuseAI/html/images/icon.png',
 		actions => {
 			go => {
 				cmd    => ['audiomuseai', 'menu'],
 				player => 0,
 			},
 		},
-		window  => { titleStyle => 'mymusic' },
+		window  => { menustyle => 'text' },
 	});
 	Slim::Control::Jive::registerPluginMenu(\@items, 'myMusic');
 
@@ -579,16 +582,7 @@ sub _browseArtists {
 		push @items, { text => string('PLUGIN_AUDIOMUSEAI_NO_RESULTS') };
 	}
 
-	# Window metadata so all controllers (Squeezer included) treat the
-	# response as a sub-window to push, not a fire-and-forget action.
-	$request->addResult('window', {
-		text       => string('PLUGIN_AUDIOMUSEAI_PICK_BROWSE_LIBRARY'),
-		titleStyle => 'mymusic',
-	});
-	$request->addResult('count',     scalar @items);
-	$request->addResult('offset',    0);
-	$request->addResult('item_loop', \@items);
-	$request->setStatusDone;
+	_emit($request, \@items, 'PLUGIN_AUDIOMUSEAI_PICK_BROWSE_LIBRARY');
 }
 
 # Filter the Lyrion artist list by a typed substring and present matches.
@@ -1418,8 +1412,20 @@ sub _tracksAsPickMenu {
 }
 
 sub _emit {
-	my ($request, $menu) = @_;
+	my ($request, $menu, $titleKey) = @_;
 	$menu ||= [];
+	# Always set 'window' metadata so strict controllers (Squeezer on
+	# Android, etc.) treat the response as a sub-window push instead of
+	# a fire-and-forget action that auto-dismisses. The field name is
+	# `menustyle` (lowercase, no T), per the SlimBrowse protocol —
+	# `titleStyle` is non-standard and Squeezer ignores it, causing the
+	# auto-dismiss. Standard values are 'text' (plain list) and 'album'
+	# (with artwork). Established plugins like Dynamic Playlists 4
+	# follow this exact convention.
+	$request->addResult('window', {
+		text      => $titleKey ? string($titleKey) : string('PLUGIN_AUDIOMUSEAI'),
+		menustyle => 'text',
+	});
 	$request->addResult('count', scalar @$menu);
 	$request->addResult('offset', 0);
 	$request->addResult('item_loop', $menu);
