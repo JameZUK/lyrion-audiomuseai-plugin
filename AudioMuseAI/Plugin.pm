@@ -24,7 +24,7 @@ use Slim::Menu::TrackInfo;
 use Slim::Menu::AlbumInfo;
 
 use constant {
-	VERSION             => '0.2.18',
+	VERSION             => '0.2.19',
 	HEALTHCHECK_DELAY   => 5,
 	# Cap search-result menus to keep the UI navigable on hardware
 	# controllers; AudioMuse can return hundreds of tracks for prolific
@@ -720,6 +720,13 @@ sub _libraryArtists {
 
 sub _libraryArtistItem {
 	my ($artistName, $cmd) = @_;
+	# NOTE: no `nextWindow => 'refresh'` here. Tapping an artist
+	# dispatches to similar_artist or similar_song_search, which return
+	# ANOTHER menu (a picker). Squeezer pushes the picker as a new
+	# activity, but if the originating item also has `refresh` the
+	# parent activity refreshes — which closes the just-pushed picker.
+	# Result: flash and revert. Default (no nextWindow) lets the new
+	# menu push and stay.
 	return {
 		text    => _safeText($artistName),
 		actions => {
@@ -729,7 +736,6 @@ sub _libraryArtistItem {
 				params => { artist => "$artistName" },
 			},
 		},
-		nextWindow => 'refresh',
 	};
 }
 

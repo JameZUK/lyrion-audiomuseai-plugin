@@ -3,7 +3,7 @@
 	<id>com.jmuk.lyrion.audiomuseai</id>
 	<name>PLUGIN_AUDIOMUSEAI</name>
 	<module>Plugins::AudioMuseAI::Plugin</module>
-	<version>0.2.18</version>
+	<version>0.2.19</version>
 	<description>PLUGIN_AUDIOMUSEAI_DESC</description>
 	<creator>James (jmuk.net)</creator>
 	<optionsURL>plugins/AudioMuseAI/settings/basic.html</optionsURL>
