@@ -24,7 +24,7 @@ use Slim::Menu::TrackInfo;
 use Slim::Menu::AlbumInfo;
 
 use constant {
-	VERSION             => '0.2.15',
+	VERSION             => '0.2.16',
 	HEALTHCHECK_DELAY   => 5,
 	# Cap search-result menus to keep the UI navigable on hardware
 	# controllers; AudioMuse can return hundreds of tracks for prolific
@@ -353,30 +353,61 @@ sub _topMenu {
 	push @menu, _actionItem('PLUGIN_AUDIOMUSEAI_MENU_SIMILAR_NOW',
 		['audiomuseai', 'similar_now'], 1);
 
-	# Both Similar-to-song and Similar-to-artist now open submenus that
-	# combine a 'Type custom...' text input with a pickable list of
-	# artists from the user's Lyrion library, so they don't have to
-	# type if their target is already in the library.
-	push @menu, _submenuItem('PLUGIN_AUDIOMUSEAI_MENU_SIMILAR_SONG',
-		['audiomuseai', 'menu_similar_song']);
+	# Direct dispatch to the paginated artist browse — wrapping it in a
+	# single-item submenu caused Squeezer to auto-dismiss (Squeezer
+	# treats one-item menus as 'auto-execute the option', and that path
+	# loses sub-window context). Going straight to browse_artists makes
+	# the response a multi-item menu, which Squeezer renders correctly.
+	push @menu, {
+		text    => string('PLUGIN_AUDIOMUSEAI_MENU_SIMILAR_SONG'),
+		actions => {
+			go => {
+				cmd    => ['audiomuseai', 'browse_artists'],
+				player => 1,
+				params => {
+					target => 'similar_song_search',
+					start  => 0,
+				},
+			},
+		},
+	};
 
-	push @menu, _submenuItem('PLUGIN_AUDIOMUSEAI_MENU_SIMILAR_ARTIST',
-		['audiomuseai', 'menu_similar_artist']);
+	push @menu, {
+		text    => string('PLUGIN_AUDIOMUSEAI_MENU_SIMILAR_ARTIST'),
+		actions => {
+			go => {
+				cmd    => ['audiomuseai', 'browse_artists'],
+				player => 1,
+				params => {
+					target => 'similar_artist',
+					start  => 0,
+				},
+			},
+		},
+	};
 
 	push @menu, _actionItem('PLUGIN_AUDIOMUSEAI_MENU_FINGERPRINT',
 		['audiomuseai', 'sonic_fp'], 1);
 
-	# Instant Playlist is now a submenu so we can offer recent prompts
-	# (per player) alongside a fresh-prompt text input.
-	push @menu, _submenuItem('PLUGIN_AUDIOMUSEAI_MENU_INSTANT',
-		['audiomuseai', 'menu_instant']);
+	# Instant Playlist — direct text input from the top menu (Squeezer
+	# can't render it but skips it cleanly; web UI / Material handle
+	# it). Recent prompts moved out of a single-item submenu wrapper
+	# (see Squeezer auto-dismiss issue above) — they're now reached
+	# via the dedicated 'menu_instant' JSON-RPC command for power users.
+	push @menu, _textInputItem('PLUGIN_AUDIOMUSEAI_MENU_INSTANT',
+		'PLUGIN_AUDIOMUSEAI_PROMPT_INSTANT',
+		['audiomuseai', 'instant'], 'prompt');
 
 	push @menu, _submenuItem('PLUGIN_AUDIOMUSEAI_MENU_MOOD',
 		['audiomuseai', 'menu_mood']);
 	push @menu, _submenuItem('PLUGIN_AUDIOMUSEAI_MENU_ALCHEMY',
 		['audiomuseai', 'menu_alchemy']);
-	push @menu, _submenuItem('PLUGIN_AUDIOMUSEAI_MENU_FINDPATH',
-		['audiomuseai', 'menu_findpath']);
+	# Find Path — direct text input from the top menu, same reasoning
+	# as Instant Playlist (single-item submenu was being auto-dismissed
+	# by Squeezer).
+	push @menu, _textInputItem('PLUGIN_AUDIOMUSEAI_MENU_FINDPATH',
+		'PLUGIN_AUDIOMUSEAI_FINDPATH_PROMPT',
+		['audiomuseai', 'findpath_search'], 'artist');
 	push @menu, _submenuItem('PLUGIN_AUDIOMUSEAI_MENU_DYNAMIC',
 		['audiomuseai', 'menu_dynamic']);
 	push @menu, _submenuItem('PLUGIN_AUDIOMUSEAI_MENU_STATUS',
