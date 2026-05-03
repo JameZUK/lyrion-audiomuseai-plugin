@@ -24,7 +24,7 @@ use Slim::Menu::TrackInfo;
 use Slim::Menu::AlbumInfo;
 
 use constant {
-	VERSION             => '0.2.23',
+	VERSION             => '0.2.24',
 	HEALTHCHECK_DELAY   => 5,
 	# Cap search-result menus to keep the UI navigable on hardware
 	# controllers; AudioMuse can return hundreds of tracks for prolific
@@ -194,6 +194,18 @@ sub initPlugin {
 	# not a Jive menu — different from menu_status / status_active).
 	Slim::Control::Request::addDispatch(['audiomuseai', 'server_status'],
 		[0, 1, 1, \&_serverStatus]);
+	# Library-coverage snapshot — drives the new 'Library' rows on the
+	# settings status panel.
+	Slim::Control::Request::addDispatch(['audiomuseai', 'library_summary'],
+		[0, 1, 1, \&_librarySummary]);
+	# Cancel the currently running AudioMuse task. Looks up the active
+	# task ID via active_tasks then POSTs /api/cancel/<id>.
+	Slim::Control::Request::addDispatch(['audiomuseai', 'cancel_active'],
+		[0, 1, 1, \&_cancelActive]);
+	# Popular CLAP search prompts (community-aggregated). Submenu of
+	# tappable preset queries — pure discovery / inspiration.
+	Slim::Control::Request::addDispatch(['audiomuseai', 'menu_top_queries'],
+		[0, 1, 1, \&_menuTopQueries]);
 
 	# Top-level menu under My Music. The 'icon' field is honoured by
 	# Material, default web UI, iPeng, and Squeezer (where it shows
@@ -370,6 +382,10 @@ sub _topMenu {
 		['audiomuseai', 'sonic_fp'], 1);
 	push @menu, _submenuItem('PLUGIN_AUDIOMUSEAI_MENU_MOOD',
 		['audiomuseai', 'menu_mood']);
+	# Community-popular CLAP search prompts — sits right after Mood
+	# because it's the same kind of "tap a phrase, get a playlist" UX.
+	push @menu, _submenuItem('PLUGIN_AUDIOMUSEAI_MENU_TOP_QUERIES',
+		['audiomuseai', 'menu_top_queries']);
 
 	# --- Tier 2: tap-driven browse / drill-down ---
 	# Direct dispatch to browse_artists — see comment in v0.2.16 about
@@ -772,9 +788,8 @@ sub _menuStatus {
 	# status_active / status_last push a multi-line status sub-window
 	# — they're navigation, not actions returning notifications, so use
 	# _navItem (no nextWindow:refresh).
-	# run_analysis / run_clustering trigger a server-side action and
-	# return a notification ('Triggered.') — _actionItem (nextWindow
-	# refresh keeps the menu live).
+	# run_analysis / run_clustering / cancel_active trigger a server-side
+	# action and return a notification — _actionItem (refresh).
 	_emit($request, [
 		_navItem('PLUGIN_AUDIOMUSEAI_STATUS_ACTIVE',
 			['audiomuseai', 'status_active']),
@@ -784,7 +799,108 @@ sub _menuStatus {
 			['audiomuseai', 'run_analysis']),
 		_actionItem('PLUGIN_AUDIOMUSEAI_STATUS_RUN_CLUSTERING',
 			['audiomuseai', 'run_clustering']),
+		_actionItem('PLUGIN_AUDIOMUSEAI_STATUS_CANCEL_ACTIVE',
+			['audiomuseai', 'cancel_active']),
 	]);
+}
+
+sub _menuTopQueries {
+	my $request = shift;
+	$request->setStatusProcessing;
+	Plugins::AudioMuseAI::API::clap_top_queries(
+		sub {
+			my $data = shift;
+			my $queries = (ref($data) eq 'HASH' ? $data->{queries} : undef) || [];
+			$queries = [] unless ref($queries) eq 'ARRAY';
+			my @items;
+			for my $q (@$queries) {
+				next unless defined $q && length $q;
+				# Each query item dispatches to mood (which is the same
+				# as instant — both wrap clap_search) so the auto-save
+				# pref applies.
+				my $label = _safeText($q);
+				push @items, {
+					text    => $label,
+					actions => {
+						go => {
+							cmd    => ['audiomuseai', 'mood'],
+							player => 0,
+							params => { prompt => $q, mood_label => $label },
+						},
+					},
+					nextWindow => 'refresh',
+				};
+			}
+			unless (@items) {
+				push @items, { text => string('PLUGIN_AUDIOMUSEAI_NO_RESULTS') };
+			}
+			_emit($request, \@items);
+		},
+		sub { _notifyError($request, shift) },
+	);
+}
+
+sub _cancelActive {
+	my $request = shift;
+	$log->info('cancel_active: looking up running task');
+	$request->setStatusProcessing;
+	Plugins::AudioMuseAI::API::active_tasks(
+		sub {
+			my $data = shift;
+			my $tid  = (ref($data) eq 'HASH') ? $data->{task_id} : undef;
+			my $st   = (ref($data) eq 'HASH') ? ($data->{status} // '') : '';
+			unless ($tid && $st =~ /^(PROGRESS|STARTED|PENDING)$/i) {
+				return _notify($request, string('PLUGIN_AUDIOMUSEAI_CANCEL_NONE'));
+			}
+			$log->info("cancel_active: cancelling task $tid (status=$st)");
+			Plugins::AudioMuseAI::API::cancel_task(
+				$tid,
+				sub { _notify($request,
+					sprintf(string('PLUGIN_AUDIOMUSEAI_CANCEL_OK'), $tid)); },
+				sub { _notifyError($request, shift); },
+			);
+		},
+		sub { _notifyError($request, shift) },
+	);
+}
+
+# Read-only library coverage for the settings panel. Cached server-side
+# (30s) to avoid pestering the API on every JS poll.
+sub _librarySummary {
+	my $request = shift;
+	$request->setStatusProcessing;
+	Plugins::AudioMuseAI::API::dashboard_summary(
+		sub {
+			my $data = shift;
+			my $c    = (ref($data) eq 'HASH' ? $data->{content} : undef) || {};
+			$c = {} unless ref($c) eq 'HASH';
+
+			$request->addResult('reachable',        1);
+			$request->addResult('distinct_albums',  $c->{distinct_albums}  // '');
+			$request->addResult('distinct_artists', $c->{distinct_artists} // '');
+			$request->addResult('clap_indexed',     $c->{clap_indexed}     // '');
+			$request->addResult('gmm_indexed',      $c->{gmm_indexed}      // '');
+			# Top three moods by score (a flat 'mood1=score1; mood2=score2'
+			# string the JS can split — keeps the response shape simple).
+			my $mc = $c->{moods_coverage};
+			if (ref($mc) eq 'ARRAY') {
+				my @top = sort { ($b->{score} // 0) <=> ($a->{score} // 0) } @$mc;
+				my @three = map {
+					sprintf('%s=%d', $_->{label} // '?', int($_->{score} // 0))
+				} @top[0 .. ($#top > 2 ? 2 : $#top)];
+				$request->addResult('top_moods', join(';', @three));
+			} else {
+				$request->addResult('top_moods', '');
+			}
+			$request->setStatusDone;
+		},
+		sub {
+			my $err = shift // 'unknown';
+			$request->addResult('reachable', 0);
+			$request->addResult('error',     $err);
+			$request->setStatusDone;
+		},
+	);
 }
 
 # ===========================================================================

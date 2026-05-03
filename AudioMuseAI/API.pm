@@ -148,9 +148,48 @@ sub _clone {
 
 sub ping {
 	my ($cb_ok, $cb_err) = @_;
-	# Reuse active_tasks as a liveness probe; cache 5s so the settings
-	# page Test Connection and startup health check don't thrash it.
-	_get('/api/active_tasks', $cb_ok, $cb_err, TIMEOUT_FAST, 5);
+	# Lightweight liveness probe — returns {"status":"ok"}. Falls back
+	# to active_tasks for old AudioMuse builds that don't have /api/health.
+	_get('/api/health', $cb_ok, sub {
+		my $err = shift;
+		# Fallback if /api/health doesn't exist (404). Distinguish from
+		# auth/timeout errors so we don't mask real problems.
+		if (defined $err && $err =~ /\b404\b/) {
+			_get('/api/active_tasks', $cb_ok, $cb_err, TIMEOUT_FAST, 5);
+		} else {
+			$cb_err->($err) if $cb_err;
+		}
+	}, TIMEOUT_FAST, 5);
+}
+
+sub health {
+	my ($cb_ok, $cb_err) = @_;
+	_get('/api/health', $cb_ok, $cb_err, TIMEOUT_FAST);
+}
+
+sub dashboard_summary {
+	my ($cb_ok, $cb_err) = @_;
+	# 30s cache: library counts don't change minute-to-minute and the
+	# settings page may poll every 10s while a task is running.
+	_get('/api/dashboard/summary', $cb_ok, $cb_err, TIMEOUT_FAST, 30);
+}
+
+sub clap_top_queries {
+	my ($cb_ok, $cb_err) = @_;
+	# 5min cache: top-queries data is community-aggregated and slow-moving.
+	_get('/api/clap/top_queries', $cb_ok, $cb_err, TIMEOUT_FAST, 300);
+}
+
+sub cancel_task {
+	my ($task_id, $cb_ok, $cb_err) = @_;
+	_post('/api/cancel/' . uri_escape_utf8($task_id), {},
+		$cb_ok, $cb_err, TIMEOUT_FAST);
+}
+
+sub cancel_all_tasks {
+	my ($prefix, $cb_ok, $cb_err) = @_;
+	_post('/api/cancel_all/' . uri_escape_utf8($prefix), {},
+		$cb_ok, $cb_err, TIMEOUT_FAST);
 }
 
 sub active_tasks {

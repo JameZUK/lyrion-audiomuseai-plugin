@@ -212,7 +212,13 @@
 
 		function fetchStatus() {
 			if (refreshTimer) { clearTimeout(refreshTimer); refreshTimer = null; }
-			rpc(['audiomuseai', 'server_status'], renderStatus, function(httpErr) {
+			rpc(['audiomuseai', 'server_status'], function(r) {
+				renderStatus(r);
+				// Pull library coverage in parallel; cached server-side
+				// (30s) so this is cheap.
+				rpc(['audiomuseai', 'library_summary'], renderLibrary,
+					function() { /* swallow — coverage is informational */ });
+			}, function(httpErr) {
 				renderUnreachable('Lyrion JSON-RPC: ' + httpErr);
 			});
 		}
@@ -283,6 +289,40 @@
 			if (/^(PROGRESS|STARTED|PENDING)$/i.test(r.status) &&
 				++refreshCount <= REFRESH_MAX) {
 				refreshTimer = setTimeout(fetchStatus, 10000);
+			}
+		}
+
+		function renderLibrary(r) {
+			if (!r || !r.reachable) return;
+			var anyKnown = (r.distinct_albums !== '' && r.distinct_albums != null)
+				|| (r.distinct_artists !== '' && r.distinct_artists != null)
+				|| (r.clap_indexed !== '' && r.clap_indexed != null);
+			if (!anyKnown) return;
+
+			var hdr = document.createElement('div');
+			hdr.className = 'am-divider am-headline';
+			hdr.textContent = 'Library coverage';
+			statusEl.appendChild(hdr);
+
+			if (r.distinct_artists !== '' && r.distinct_artists != null) {
+				appendRow('Artists', r.distinct_artists);
+			}
+			if (r.distinct_albums !== '' && r.distinct_albums != null) {
+				appendRow('Albums', r.distinct_albums);
+			}
+			if (r.clap_indexed !== '' && r.clap_indexed != null) {
+				appendRow('CLAP-indexed', r.clap_indexed + ' tracks');
+			}
+			if (r.gmm_indexed !== '' && r.gmm_indexed != null) {
+				appendRow('Clustered', r.gmm_indexed + ' tracks');
+			}
+			if (r.top_moods) {
+				// 'mood1=score1;mood2=score2;mood3=score3'
+				var pretty = r.top_moods.split(';').map(function(s) {
+					var parts = s.split('=');
+					return parts[0] + ' (' + parts[1] + ')';
+				}).join(', ');
+				appendRow('Top moods', pretty, true);
 			}
 		}
 
