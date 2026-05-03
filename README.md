@@ -36,6 +36,7 @@ Once installed, you'll see **My Music → AudioMuse-AI** with the following entr
 | **Similar to current track** | Queues N tracks sonically similar to whatever's currently playing. | Clustering done. |
 | **Sonic Fingerprint** | Replaces the queue with a personalised playlist generated from your listening history. | A few hundred plays in the database. |
 | **Browse by Mood** | Submenu of seven preset CLAP prompts (Energetic, Calm, Sad, Happy, Aggressive, Acoustic, Party). Tapping one queues a matching playlist. | Analysis completed (CLAP cache loaded). |
+| **Popular CLAP searches...** | Submenu of community-popular search prompts pulled from the AudioMuse-AI server. Pure discovery — tap any phrase to queue. Same auto-save behaviour as Browse by Mood. | Analysis completed. |
 
 ### Tier 2 — Tap-driven browse
 
@@ -70,7 +71,7 @@ These items render but **can't be activated on Squeezer**, which doesn't render 
 
 | Item | What it does |
 |---|---|
-| **Server Status / Admin** | Submenu: show active task, show last task, trigger analysis, trigger clustering. Errors elsewhere ("similarity service unavailable") include live status inline so you know what's blocking. |
+| **Server Status / Admin** | Submenu: show active task, show last task, trigger analysis, trigger clustering, **cancel running task**. Errors elsewhere ("similarity service unavailable") include live status inline so you know what's blocking. |
 | **Open Music Map (web UI link)** | Clickable link to the AudioMuse-AI web UI, opened in a browser on controllers that honour Jive's `weblink` field (Material, default web UI, iPeng). On other controllers it shows the URL as text. |
 
 ## Pro tip: the fastest paths
@@ -103,7 +104,7 @@ Enable **Auto-extend the queue** in plugin settings. Then start any **Dynamic Pl
 | **Auto-save Instant Playlist results** | After every Instant Playlist action, save the queue as `AudioMuse: <your prompt>`. |
 | **Auto-save Browse-by-Mood results** | After tapping a Mood preset, save as `AudioMuse: <mood> - <timestamp>`. |
 | **Test connection** | Probes the server and reports OK / failure. Result polled in-place via JSON-RPC. |
-| **Server Status panel** | Shows current task / progress / running time / last log line. Auto-refreshes every 10 s while running. |
+| **Server Status panel** | Shows current task (status_message, state, progress %, running time, last log line) **and a Library coverage section** (artists / albums / CLAP-indexed track count / clustered track count / top moods). Auto-refreshes every 10 s while a task is running. |
 
 ### Auto-name strategies
 
@@ -161,6 +162,12 @@ Quick samples:
 
 # Get live server status (structured JSON for dashboards)
 {"params":["",["audiomuseai","server_status"]]}
+
+# Library coverage stats (artists, albums, CLAP-indexed, etc.)
+{"params":["",["audiomuseai","library_summary"]]}
+
+# Cancel the currently running AudioMuse task
+{"params":["",["audiomuseai","cancel_active"]]}
 ```
 
 ## How AudioMuse-AI features map to plugin items
@@ -169,11 +176,13 @@ Quick samples:
 |---|---|
 | Sonic similarity | **Similar to current track**, **Similar to a song**, **Similar to an artist** |
 | Sonic fingerprint | **Sonic Fingerprint** |
-| Instant playlist (CLAP) | **Instant Playlist (text)**, **Browse by Mood** (preset prompts) |
+| Instant playlist (CLAP) | **Instant Playlist (text)**, **Browse by Mood** (preset prompts), **Popular CLAP searches** (community queries) |
 | Song Alchemy | **Song Alchemy** submenu |
-| Song Paths | **Find Path between two songs** |
+| Song Paths | **Build a sonic journey between two songs** |
 | Music Map | **Open Music Map** (link to web UI) |
-| Analysis / clustering | **Server Status / Admin** submenu |
+| Library coverage | Settings → Server Status panel (artists / albums / CLAP-indexed / clustered / top moods) |
+| Analysis / clustering / cancel | **Server Status / Admin** submenu (incl. cancel running task) |
+| Health probe | Internal — `/api/health` used for the startup connectivity log |
 
 ## Limitations and gotchas
 
