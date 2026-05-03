@@ -65,6 +65,7 @@ These items render but **can't be activated on Squeezer**, which doesn't render 
 | Item | What it does |
 |---|---|
 | **Instant Playlist (text — needs typing)...** | Type a natural-language description (e.g. "low-energy late-night ambient") → AudioMuse's CLAP search returns matching tracks → queue is replaced. With **Auto-save Instant Playlist** enabled in settings, the result is saved as `AudioMuse: <your prompt>`. |
+| **AI Chat Playlist (LLM, text — needs typing)...** | Same UX as Instant Playlist, but the backend is the LLM you've configured on the AudioMuse-AI server (Gemini / OpenAI / Mistral / Ollama). Plain language → AI-generated SQL → matching tracks. Requires `AI_MODEL_PROVIDER` to be set on the AudioMuse server. Same auto-save toggle as Instant Playlist. |
 | **Find Path between two songs (text — needs typing)...** | Generates a sonic-transition playlist between your currently-playing track and a chosen end-track. Useful for smooth genre/mood transitions. |
 
 ### Tier 6 — Status / link-out
@@ -177,6 +178,7 @@ Quick samples:
 | Sonic similarity | **Similar to current track**, **Similar to a song**, **Similar to an artist** |
 | Sonic fingerprint | **Sonic Fingerprint** |
 | Instant playlist (CLAP) | **Instant Playlist (text)**, **Browse by Mood** (preset prompts), **Popular CLAP searches** (community queries) |
+| Chat-driven playlist (LLM via AudioMuse's `AI_MODEL_PROVIDER`) | **AI Chat Playlist** |
 | Song Alchemy | **Song Alchemy** submenu |
 | Song Paths | **Build a sonic journey between two songs** |
 | Music Map | **Open Music Map** (link to web UI) |
