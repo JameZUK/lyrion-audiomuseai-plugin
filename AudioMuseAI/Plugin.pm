@@ -24,7 +24,7 @@ use Slim::Menu::TrackInfo;
 use Slim::Menu::AlbumInfo;
 
 use constant {
-	VERSION             => '0.2.11',
+	VERSION             => '0.2.12',
 	HEALTHCHECK_DELAY   => 5,
 	# Cap search-result menus to keep the UI navigable on hardware
 	# controllers; AudioMuse can return hundreds of tracks for prolific
@@ -36,10 +36,10 @@ use constant {
 	FINDPATH_MAX_STEPS  => 12,
 	# Per-player ring buffer for recent CLAP/instant prompts.
 	RECENT_PROMPTS_MAX  => 5,
-	# Page size for paginated artist browse — large enough to scroll
-	# through a few albums quickly, small enough that the round-trip
-	# is fast on slow controllers.
-	BROWSE_PAGE_SIZE    => 200,
+	# Page size for paginated artist browse — kept small so simpler
+	# controllers (e.g. Squeezer on Android) don't choke on long
+	# responses. Server-side pagination handles deeper navigation.
+	BROWSE_PAGE_SIZE    => 50,
 };
 
 my $log = Slim::Utils::Log->addLogCategory({
@@ -558,13 +558,13 @@ sub _browseArtists {
 	};
 	$log->warn("browse_artists failed at start=$start: $@") if $@;
 
-	# 'More...' if there are further pages. Self-dispatches with
-	# start advanced by one page.
+	# 'More...' tail item if there are further pages. Static so it
+	# works even in controllers that don't honour server-side
+	# pagination metadata.
 	if ($total > $start + scalar(@items)) {
 		my $next = $start + scalar(@items);
 		push @items, {
-			text    => sprintf('More... (%d-%d of %d)',
-				$next + 1, ($next + $page > $total ? $total : $next + $page), $total),
+			text    => string('PLUGIN_AUDIOMUSEAI_MORE'),
 			actions => {
 				go => {
 					cmd    => ['audiomuseai', 'browse_artists'],
@@ -579,9 +579,14 @@ sub _browseArtists {
 		push @items, { text => string('PLUGIN_AUDIOMUSEAI_NO_RESULTS') };
 	}
 
-	# Set total / offset for clients that support server-side pagination.
-	$request->addResult('count',  scalar @items);
-	$request->addResult('offset', 0);
+	# Window metadata so all controllers (Squeezer included) treat the
+	# response as a sub-window to push, not a fire-and-forget action.
+	$request->addResult('window', {
+		text       => string('PLUGIN_AUDIOMUSEAI_PICK_BROWSE_LIBRARY'),
+		titleStyle => 'mymusic',
+	});
+	$request->addResult('count',     scalar @items);
+	$request->addResult('offset',    0);
 	$request->addResult('item_loop', \@items);
 	$request->setStatusDone;
 }
