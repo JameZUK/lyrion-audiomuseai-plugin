@@ -24,7 +24,7 @@ use Slim::Menu::TrackInfo;
 use Slim::Menu::AlbumInfo;
 
 use constant {
-	VERSION             => '0.2.13',
+	VERSION             => '0.2.14',
 	HEALTHCHECK_DELAY   => 5,
 	# Cap search-result menus to keep the UI navigable on hardware
 	# controllers; AudioMuse can return hundreds of tracks for prolific
@@ -86,12 +86,19 @@ sub initPlugin {
 		[0, 1, 1, \&_menuDynamic]);
 	Slim::Control::Request::addDispatch(['audiomuseai', 'menu_status'],
 		[0, 1, 1, \&_menuStatus]);
+	# These are pure menu builders (list items only). They were marked
+	# needsClient=1 originally for menu_instant which uses per-player
+	# recent-prompts. But the parent menu items pass player=>0, and
+	# strict controllers (Squeezer) honour that — the dispatcher then
+	# rejects with bad-params and the menu auto-dismisses. Set
+	# needsClient=0 and have the builders degrade gracefully when no
+	# client is in scope.
 	Slim::Control::Request::addDispatch(['audiomuseai', 'menu_instant'],
-		[1, 1, 1, \&_menuInstant]);
+		[0, 1, 1, \&_menuInstant]);
 	Slim::Control::Request::addDispatch(['audiomuseai', 'menu_similar_song'],
-		[1, 1, 1, \&_menuSimilarSong]);
+		[0, 1, 1, \&_menuSimilarSong]);
 	Slim::Control::Request::addDispatch(['audiomuseai', 'menu_similar_artist'],
-		[1, 1, 1, \&_menuSimilarArtist]);
+		[0, 1, 1, \&_menuSimilarArtist]);
 	# Filter the Lyrion artist list by a substring; used by the text-input
 	# entries in similar_song / similar_artist for actual autocomplete.
 	Slim::Control::Request::addDispatch(['audiomuseai', 'filter_artists'],
@@ -494,24 +501,21 @@ sub _menuDynamic {
 
 sub _menuSimilarSong {
 	my $request = shift;
-	my $client  = $request->client or return $request->setStatusBadParams;
-	# Two paths: paginated Lyrion browse (works in every controller)
-	# and a text-input filter (only renders in controllers that support
-	# Jive 'input' — Squeezer doesn't, but Material / iPeng / default
-	# web UI do).
+	# No $client requirement — the builder just emits items. The items
+	# themselves declare player=>1 so the actual action picks up the
+	# current player when fired.
 	_emit($request, [
 		_browseEntryItem('similar_song_search'),
 		_artistFilterInput('similar_song_search'),
-	]);
+	], 'PLUGIN_AUDIOMUSEAI_MENU_SIMILAR_SONG');
 }
 
 sub _menuSimilarArtist {
 	my $request = shift;
-	my $client  = $request->client or return $request->setStatusBadParams;
 	_emit($request, [
 		_browseEntryItem('similar_artist'),
 		_artistFilterInput('similar_artist'),
-	]);
+	], 'PLUGIN_AUDIOMUSEAI_MENU_SIMILAR_ARTIST');
 }
 
 sub _browseEntryItem {
@@ -693,30 +697,35 @@ sub _libraryArtistItem {
 
 sub _menuInstant {
 	my $request = shift;
-	my $client  = $request->client or return $request->setStatusBadParams;
+	# No client requirement — recent prompts are best-effort. Builder
+	# always returns at least the 'New prompt...' input so the menu is
+	# non-empty even when no player is in scope.
+	my $client = $request->client;
 
 	my @menu;
 	push @menu, _textInputItem('PLUGIN_AUDIOMUSEAI_INSTANT_NEW',
 		'PLUGIN_AUDIOMUSEAI_PROMPT_INSTANT',
 		['audiomuseai', 'instant'], 'prompt');
 
-	my $recents = $prefs->client($client)->get('recent_prompts');
-	$recents = [] unless ref($recents) eq 'ARRAY';
-	for my $p (@$recents) {
-		next unless defined $p && length $p;
-		push @menu, {
-			text    => $p,
-			actions => {
-				go => {
-					cmd    => ['audiomuseai', 'instant'],
-					player => 1,
-					params => { prompt => $p },
+	if ($client) {
+		my $recents = $prefs->client($client)->get('recent_prompts');
+		$recents = [] unless ref($recents) eq 'ARRAY';
+		for my $p (@$recents) {
+			next unless defined $p && length $p;
+			push @menu, {
+				text    => $p,
+				actions => {
+					go => {
+						cmd    => ['audiomuseai', 'instant'],
+						player => 1,
+						params => { prompt => $p },
+					},
 				},
-			},
-			nextWindow => 'refresh',
-		};
+				nextWindow => 'refresh',
+			};
+		}
 	}
-	_emit($request, \@menu);
+	_emit($request, \@menu, 'PLUGIN_AUDIOMUSEAI_MENU_INSTANT');
 }
 
 sub _menuStatus {
