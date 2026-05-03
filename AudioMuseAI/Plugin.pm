@@ -24,7 +24,7 @@ use Slim::Menu::TrackInfo;
 use Slim::Menu::AlbumInfo;
 
 use constant {
-	VERSION             => '0.2.16',
+	VERSION             => '0.2.17',
 	HEALTHCHECK_DELAY   => 5,
 	# Cap search-result menus to keep the UI navigable on hardware
 	# controllers; AudioMuse can return hundreds of tracks for prolific
@@ -532,24 +532,26 @@ sub _menuDynamic {
 
 sub _menuSimilarSong {
 	my $request = shift;
-	$log->info('menu_similar_song reached (client='
-		. ($request->client ? $request->client->id : 'none') . ')');
-	# Diagnostic: only the browse path. Removing the text-input item
-	# tests whether Squeezer is bailing on submenus that contain a
-	# Jive 'input' field it can't render. Web UI users still have the
-	# context-menu route via My Music -> Artists -> tap -> AudioMuse.
-	_emit($request, [
-		_browseEntryItem('similar_song_search'),
-	], 'PLUGIN_AUDIOMUSEAI_MENU_SIMILAR_SONG');
+	$log->info('menu_similar_song reached -> delegating to browse_artists '
+		. '(target=similar_song_search)');
+	# Defensive: Squeezer caches My Music menu structure aggressively.
+	# Even after we collapsed the top-menu items in v0.2.16 to dispatch
+	# straight to browse_artists, cached clients still call the old
+	# wrapper. So make the wrapper do the same thing as the new
+	# direct dispatch — single source of truth, works for cached and
+	# fresh clients alike.
+	$request->addParam('target', 'similar_song_search');
+	$request->addParam('start',  '0');
+	return _browseArtists($request);
 }
 
 sub _menuSimilarArtist {
 	my $request = shift;
-	$log->info('menu_similar_artist reached (client='
-		. ($request->client ? $request->client->id : 'none') . ')');
-	_emit($request, [
-		_browseEntryItem('similar_artist'),
-	], 'PLUGIN_AUDIOMUSEAI_MENU_SIMILAR_ARTIST');
+	$log->info('menu_similar_artist reached -> delegating to browse_artists '
+		. '(target=similar_artist)');
+	$request->addParam('target', 'similar_artist');
+	$request->addParam('start',  '0');
+	return _browseArtists($request);
 }
 
 sub _browseEntryItem {
@@ -577,6 +579,8 @@ sub _browseArtists {
 	my $start   = int($request->getParam('start') // 0);
 	$start = 0 if $start < 0;
 	my $target  = $request->getParam('target') || 'similar_artist';
+	$log->info("browse_artists reached: target=$target start=$start "
+		. 'client=' . $client->id);
 	$target = 'similar_artist'
 		unless grep { $_ eq $target } qw(similar_artist similar_song_search);
 
