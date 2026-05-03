@@ -85,16 +85,16 @@ PLUGIN_AUDIOMUSEAI_MENU_SIMILAR_NOW
 	EN	Similar to current track
 
 PLUGIN_AUDIOMUSEAI_MENU_SIMILAR_SONG
-	EN	Similar to a song (browse: artist → track)...
+	EN	Similar to a song (pick artist, then track)...
 
 PLUGIN_AUDIOMUSEAI_MENU_SIMILAR_ARTIST
-	EN	Similar to an artist (browse)...
+	EN	Similar to an artist (pick from library)...
 
 PLUGIN_AUDIOMUSEAI_MENU_FINGERPRINT
 	EN	Sonic Fingerprint
 
 PLUGIN_AUDIOMUSEAI_MENU_INSTANT
-	EN	Instant Playlist (text prompt)
+	EN	Instant Playlist (text — needs typing)...
 
 PLUGIN_AUDIOMUSEAI_MENU_MOOD
 	EN	Browse by Mood
@@ -103,7 +103,7 @@ PLUGIN_AUDIOMUSEAI_MENU_ALCHEMY
 	EN	Song Alchemy
 
 PLUGIN_AUDIOMUSEAI_MENU_FINDPATH
-	EN	Find Path
+	EN	Find Path between two songs (text — needs typing)...
 
 PLUGIN_AUDIOMUSEAI_MENU_DYNAMIC
 	EN	Dynamic Playlists
@@ -115,7 +115,7 @@ PLUGIN_AUDIOMUSEAI_MENU_OPEN_MAP
 	EN	Open Music Map (web UI)
 
 PLUGIN_AUDIOMUSEAI_MENU_SAVE_PLAYLIST
-	EN	Save current queue as playlist...
+	EN	Save current queue as playlist (auto-named)
 
 PLUGIN_AUDIOMUSEAI_INSTANT_NEW
 	EN	New prompt...

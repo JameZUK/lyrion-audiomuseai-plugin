@@ -24,7 +24,7 @@ use Slim::Menu::TrackInfo;
 use Slim::Menu::AlbumInfo;
 
 use constant {
-	VERSION             => '0.2.20',
+	VERSION             => '0.2.21',
 	HEALTHCHECK_DELAY   => 5,
 	# Cap search-result menus to keep the UI navigable on hardware
 	# controllers; AudioMuse can return hundreds of tracks for prolific
@@ -350,74 +350,54 @@ sub _topMenu {
 	# Prime the cache (fire-and-forget; ignore the result).
 	Plugins::AudioMuseAI::API::active_tasks(sub {}, sub {});
 
+	# --- Tier 1: one-tap actions, most common ---
 	push @menu, _actionItem('PLUGIN_AUDIOMUSEAI_MENU_SIMILAR_NOW',
 		['audiomuseai', 'similar_now'], 1);
-
-	# Direct dispatch to the paginated artist browse — wrapping it in a
-	# single-item submenu caused Squeezer to auto-dismiss (Squeezer
-	# treats one-item menus as 'auto-execute the option', and that path
-	# loses sub-window context). Going straight to browse_artists makes
-	# the response a multi-item menu, which Squeezer renders correctly.
-	push @menu, {
-		text    => string('PLUGIN_AUDIOMUSEAI_MENU_SIMILAR_SONG'),
-		actions => {
-			go => {
-				cmd    => ['audiomuseai', 'browse_artists'],
-				player => 0,
-				params => {
-					target => 'similar_song_search',
-					start  => 0,
-				},
-			},
-		},
-	};
-
-	push @menu, {
-		text    => string('PLUGIN_AUDIOMUSEAI_MENU_SIMILAR_ARTIST'),
-		actions => {
-			go => {
-				cmd    => ['audiomuseai', 'browse_artists'],
-				player => 0,
-				params => {
-					target => 'similar_artist',
-					start  => 0,
-				},
-			},
-		},
-	};
-
 	push @menu, _actionItem('PLUGIN_AUDIOMUSEAI_MENU_FINGERPRINT',
 		['audiomuseai', 'sonic_fp'], 1);
+	push @menu, _submenuItem('PLUGIN_AUDIOMUSEAI_MENU_MOOD',
+		['audiomuseai', 'menu_mood']);
 
-	# Instant Playlist — direct text input from the top menu (Squeezer
-	# can't render it but skips it cleanly; web UI / Material handle
-	# it). Recent prompts moved out of a single-item submenu wrapper
-	# (see Squeezer auto-dismiss issue above) — they're now reached
-	# via the dedicated 'menu_instant' JSON-RPC command for power users.
+	# --- Tier 2: tap-driven browse / drill-down ---
+	# Direct dispatch to browse_artists — see comment in v0.2.16 about
+	# why we don't wrap in a single-item submenu (Squeezer auto-dismiss).
+	push @menu, _navItem('PLUGIN_AUDIOMUSEAI_MENU_SIMILAR_ARTIST',
+		['audiomuseai', 'browse_artists'],
+		{ target => 'similar_artist', start => 0 });
+	push @menu, _navItem('PLUGIN_AUDIOMUSEAI_MENU_SIMILAR_SONG',
+		['audiomuseai', 'browse_artists'],
+		{ target => 'similar_song_search', start => 0 });
+
+	# --- Tier 3: sessions / advanced ---
+	push @menu, _submenuItem('PLUGIN_AUDIOMUSEAI_MENU_DYNAMIC',
+		['audiomuseai', 'menu_dynamic']);
+	push @menu, _submenuItem('PLUGIN_AUDIOMUSEAI_MENU_ALCHEMY',
+		['audiomuseai', 'menu_alchemy']);
+
+	# --- Tier 4: tools (tap-only) ---
+	# Save current queue: auto-named with timestamp, no text input
+	# required. Squeezer-friendly. Users can rename via Lyrion's standard
+	# playlist UI later if desired.
+	push @menu, _actionItem('PLUGIN_AUDIOMUSEAI_MENU_SAVE_PLAYLIST',
+		['audiomuseai', 'save_playlist'], 1);
+
+	# --- Tier 5: text-input required (web UI / Material only) ---
+	# Squeezer skips items with `input` blocks cleanly — they just don't
+	# render. Suffix in the label warns users that typing is required.
 	push @menu, _textInputItem('PLUGIN_AUDIOMUSEAI_MENU_INSTANT',
 		'PLUGIN_AUDIOMUSEAI_PROMPT_INSTANT',
 		['audiomuseai', 'instant'], 'prompt');
-
-	push @menu, _submenuItem('PLUGIN_AUDIOMUSEAI_MENU_MOOD',
-		['audiomuseai', 'menu_mood']);
-	push @menu, _submenuItem('PLUGIN_AUDIOMUSEAI_MENU_ALCHEMY',
-		['audiomuseai', 'menu_alchemy']);
-	# Find Path — direct text input from the top menu, same reasoning
-	# as Instant Playlist (single-item submenu was being auto-dismissed
-	# by Squeezer).
+	# findpath_search returns a track-pick menu (not a notification),
+	# so it should NOT have nextWindow:refresh — that would close the
+	# pushed picker.
 	push @menu, _textInputItem('PLUGIN_AUDIOMUSEAI_MENU_FINDPATH',
 		'PLUGIN_AUDIOMUSEAI_FINDPATH_PROMPT',
-		['audiomuseai', 'findpath_search'], 'artist');
-	push @menu, _submenuItem('PLUGIN_AUDIOMUSEAI_MENU_DYNAMIC',
-		['audiomuseai', 'menu_dynamic']);
+		['audiomuseai', 'findpath_search'], 'artist',
+		{ push => 1 });
+
+	# --- Tier 6: status / link-out ---
 	push @menu, _submenuItem('PLUGIN_AUDIOMUSEAI_MENU_STATUS',
 		['audiomuseai', 'menu_status']);
-
-	# Save current Lyrion queue under a user-supplied name. Doesn't go
-	# through AudioMuse — it just calls Lyrion's playlist save command.
-	push @menu, _textInputItem('PLUGIN_AUDIOMUSEAI_MENU_SAVE_PLAYLIST',
-		'PLUGIN_AUDIOMUSEAI_PROMPT_PLAYLIST_NAME',
-		['audiomuseai', 'save_playlist'], 'name');
 
 	# Open Music Map: weblink-bearing item with action.go fallback.
 	my $url = ($prefs->get('url') || '') . '/';
@@ -514,7 +494,8 @@ sub _menuFindPath {
 	_emit($request, [
 		_textInputItem('PLUGIN_AUDIOMUSEAI_FINDPATH_FROM_NOW',
 			'PLUGIN_AUDIOMUSEAI_FINDPATH_PROMPT',
-			['audiomuseai', 'findpath_search'], 'artist'),
+			['audiomuseai', 'findpath_search'], 'artist',
+			{ push => 1 }),
 	]);
 }
 
@@ -659,6 +640,7 @@ sub _filterArtists {
 	# Always offer "use as typed" first — the user might be searching
 	# for an artist that isn't (yet) in the local Lyrion library but
 	# exists in AudioMuse. Also covers the no-matches case.
+	# No nextWindow: dispatch returns a NEW menu (similar_* picker).
 	push @items, {
 		text    => sprintf(string('PLUGIN_AUDIOMUSEAI_USE_AS_TYPED'), $query),
 		actions => {
@@ -668,7 +650,6 @@ sub _filterArtists {
 				params => { artist => "$query" },
 			},
 		},
-		nextWindow => 'refresh',
 	};
 
 	for my $name (@$matches) {
@@ -682,6 +663,7 @@ sub _filterArtists {
 
 sub _artistFilterInput {
 	my $target = shift;
+	# filter_artists returns a pick menu — no nextWindow:refresh.
 	return {
 		text  => string('PLUGIN_AUDIOMUSEAI_PICK_TYPE_ARTIST'),
 		input => {
@@ -700,7 +682,6 @@ sub _artistFilterInput {
 				},
 			},
 		},
-		nextWindow => 'refresh',
 	};
 }
 
@@ -790,15 +771,21 @@ sub _menuInstant {
 
 sub _menuStatus {
 	my $request = shift;
+	# status_active / status_last push a multi-line status sub-window
+	# — they're navigation, not actions returning notifications, so use
+	# _navItem (no nextWindow:refresh).
+	# run_analysis / run_clustering trigger a server-side action and
+	# return a notification ('Triggered.') — _actionItem (nextWindow
+	# refresh keeps the menu live).
 	_emit($request, [
-		_actionItem('PLUGIN_AUDIOMUSEAI_STATUS_ACTIVE',
-			['audiomuseai', 'status_active'], 0),
-		_actionItem('PLUGIN_AUDIOMUSEAI_STATUS_LAST',
-			['audiomuseai', 'status_last'], 0),
+		_navItem('PLUGIN_AUDIOMUSEAI_STATUS_ACTIVE',
+			['audiomuseai', 'status_active']),
+		_navItem('PLUGIN_AUDIOMUSEAI_STATUS_LAST',
+			['audiomuseai', 'status_last']),
 		_actionItem('PLUGIN_AUDIOMUSEAI_STATUS_RUN_ANALYSIS',
-			['audiomuseai', 'run_analysis'], 0),
+			['audiomuseai', 'run_analysis']),
 		_actionItem('PLUGIN_AUDIOMUSEAI_STATUS_RUN_CLUSTERING',
-			['audiomuseai', 'run_clustering'], 0),
+			['audiomuseai', 'run_clustering']),
 	]);
 }
 
@@ -1252,12 +1239,20 @@ sub _openMap {
 sub _savePlaylist {
 	my $request = shift;
 	my $client  = $request->client or return $request->setStatusBadParams;
-	my $name    = _trim($request->getParam('name') // '');
-	return _notify($request, string('PLUGIN_AUDIOMUSEAI_EMPTY_INPUT')) unless length $name;
 
-	# Reject control / path-injecting characters; Lyrion accepts most
-	# strings but it's polite to disallow ones that would be ugly on
-	# the file system.
+	# Name comes from text input if the user typed one (works on web UI /
+	# Material). If absent (Squeezer / tap-only invocation), auto-name
+	# with timestamp so the menu item is reachable on every controller.
+	# Users can rename via Lyrion's standard playlist UI later.
+	my $name = _trim($request->getParam('name') // '');
+	unless (length $name) {
+		my @t = localtime();
+		$name = sprintf('AudioMuse %04d-%02d-%02d %02d:%02d',
+			$t[5] + 1900, $t[4] + 1, $t[3], $t[2], $t[1]);
+	}
+
+	# Reject control / path-injecting characters even in the auto-name
+	# (defensive — should not happen given our format string).
 	$name =~ s/[\x00-\x1f\x7f]//g;
 	$name =~ s{[/\\]}{-}g;
 
@@ -1391,17 +1386,52 @@ sub _count {
 	return $n;
 }
 
+# --- Item builder helpers ---
+# Three flavours of item, distinguished by what the dispatched action
+# returns:
+#
+#   _actionItem  : action returns a NOTIFICATION (queues tracks etc).
+#                  Includes `nextWindow: refresh` so the parent menu
+#                  refreshes after the toast.
+#
+#   _navItem     : action returns a NEW MENU to push (a picker, sub
+#                  list). Has NO `nextWindow` — Squeezer would close
+#                  the just-pushed menu if `refresh` were set.
+#
+#   _submenuItem : same as _navItem but for items that explicitly open
+#                  a known submenu builder (menu_mood etc). Kept
+#                  separate for readability.
+#
+#   _textInputItem : prompts for text. Whether `nextWindow:refresh` is
+#                    appropriate depends on the dispatched command —
+#                    callers pass a flag.
+#
+# Player flag is always 0. The actual player ID is sent automatically
+# as the first JSON-RPC argument; the menu item's `player` field, if
+# set to a non-zero value, is interpreted by Squeezer as a literal
+# player ID and breaks navigation. (See v0.2.18 commit notes.)
+
 sub _actionItem {
-	my ($strKey, $cmd, $needsPlayer) = @_;
+	my ($strKey, $cmd, undef) = @_;  # 3rd arg kept for back-compat, unused
 	return {
 		text    => string($strKey),
 		actions => {
 			go => {
 				cmd    => $cmd,
-				player => $needsPlayer ? 1 : 0,
+				player => 0,
 			},
 		},
 		nextWindow => 'refresh',
+	};
+}
+
+sub _navItem {
+	my ($strKey, $cmd, $params) = @_;
+	my $go = { cmd => $cmd, player => 0 };
+	$go->{params} = $params if $params && %$params;
+	return {
+		text    => string($strKey),
+		actions => { go => $go },
 	};
 }
 
@@ -1419,8 +1449,11 @@ sub _submenuItem {
 }
 
 sub _textInputItem {
-	my ($titleKey, $promptKey, $cmd, $paramName) = @_;
-	return {
+	my ($titleKey, $promptKey, $cmd, $paramName, $opts) = @_;
+	# $opts->{push} = 1  -> action returns a new menu (no nextWindow)
+	#                       Default is action returns a notification.
+	$opts ||= {};
+	my $item = {
 		text  => string($titleKey),
 		input => {
 			len  => 1,
@@ -1435,8 +1468,9 @@ sub _textInputItem {
 				params => { $paramName => '__TAGGEDINPUT__' },
 			},
 		},
-		nextWindow => 'refresh',
 	};
+	$item->{nextWindow} = 'refresh' unless $opts->{push};
+	return $item;
 }
 
 # Build a Jive menu of tappable tracks from an AudioMuse search-result list.
