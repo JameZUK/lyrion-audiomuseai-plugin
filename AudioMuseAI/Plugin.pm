@@ -24,7 +24,7 @@ use Slim::Menu::TrackInfo;
 use Slim::Menu::AlbumInfo;
 
 use constant {
-	VERSION             => '0.2.17',
+	VERSION             => '0.2.18',
 	HEALTHCHECK_DELAY   => 5,
 	# Cap search-result menus to keep the UI navigable on hardware
 	# controllers; AudioMuse can return hundreds of tracks for prolific
@@ -266,7 +266,7 @@ sub _artistInfoSimilar {
 			actions => {
 				go => {
 					cmd    => ['audiomuseai', 'similar_artist'],
-					player => 1,
+					player => 0,
 					params => { artist => "$name" },
 				},
 			},
@@ -286,7 +286,7 @@ sub _trackInfoSimilar {
 			actions => {
 				go => {
 					cmd    => ['audiomuseai', 'similar_track'],
-					player => 1,
+					player => 0,
 					params => { track_id => "$tid" },
 				},
 			},
@@ -310,7 +310,7 @@ sub _albumInfoAlchemy {
 			actions => {
 				go => {
 					cmd    => ['audiomuseai', 'alchemy_album'],
-					player => 1,
+					player => 0,
 					params => { album_id => "$aid" },
 				},
 			},
@@ -363,7 +363,7 @@ sub _topMenu {
 		actions => {
 			go => {
 				cmd    => ['audiomuseai', 'browse_artists'],
-				player => 1,
+				player => 0,
 				params => {
 					target => 'similar_song_search',
 					start  => 0,
@@ -377,7 +377,7 @@ sub _topMenu {
 		actions => {
 			go => {
 				cmd    => ['audiomuseai', 'browse_artists'],
-				player => 1,
+				player => 0,
 				params => {
 					target => 'similar_artist',
 					start  => 0,
@@ -479,7 +479,7 @@ sub _menuMood {
 			actions => {
 				go => {
 					cmd    => ['audiomuseai', 'mood'],
-					player => 1,
+					player => 0,
 					params => { prompt => $prompt },
 				},
 			},
@@ -561,7 +561,7 @@ sub _browseEntryItem {
 		actions => {
 			go => {
 				cmd    => ['audiomuseai', 'browse_artists'],
-				player => 1,
+				player => 0,
 				params => { target => $target, start => 0 },
 			},
 		},
@@ -613,7 +613,7 @@ sub _browseArtists {
 			actions => {
 				go => {
 					cmd    => ['audiomuseai', 'browse_artists'],
-					player => 1,
+					player => 0,
 					params => { target => $target, start => $next },
 				},
 			},
@@ -652,7 +652,7 @@ sub _filterArtists {
 		actions => {
 			go => {
 				cmd    => ['audiomuseai', $target],
-				player => 1,
+				player => 0,
 				params => { artist => "$query" },
 			},
 		},
@@ -681,7 +681,7 @@ sub _artistFilterInput {
 		actions => {
 			go => {
 				cmd    => ['audiomuseai', 'filter_artists'],
-				player => 1,
+				player => 0,
 				params => {
 					query  => '__TAGGEDINPUT__',
 					target => $target,
@@ -725,7 +725,7 @@ sub _libraryArtistItem {
 		actions => {
 			go => {
 				cmd    => $cmd,
-				player => 1,
+				player => 0,
 				params => { artist => "$artistName" },
 			},
 		},
@@ -754,7 +754,7 @@ sub _menuInstant {
 				actions => {
 					go => {
 						cmd    => ['audiomuseai', 'instant'],
-						player => 1,
+						player => 0,
 						params => { prompt => $p },
 					},
 				},
@@ -868,7 +868,7 @@ sub _similarArtist {
 					actions => {
 						go => {
 							cmd    => ['audiomuseai', 'similar_artist_with_artist'],
-							player => 1,
+							player => 0,
 							params => { artist => "$name" },
 						},
 					},
@@ -1413,7 +1413,7 @@ sub _textInputItem {
 		actions => {
 			go => {
 				cmd    => $cmd,
-				player => 1,
+				player => 0,
 				params => { $paramName => '__TAGGEDINPUT__' },
 			},
 		},
@@ -1447,7 +1447,7 @@ sub _tracksAsPickMenu {
 			actions => {
 				go => {
 					cmd    => $cmd,
-					player => 1,
+					player => 0,
 					params => { %$extraParams, $idParamName => "$tid" },
 				},
 			},
