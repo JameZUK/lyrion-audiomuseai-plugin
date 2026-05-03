@@ -85,10 +85,10 @@ PLUGIN_AUDIOMUSEAI_MENU_SIMILAR_NOW
 	EN	Similar to current track
 
 PLUGIN_AUDIOMUSEAI_MENU_SIMILAR_SONG
-	EN	Similar to song...
+	EN	Similar to a song (browse: artist → track)...
 
 PLUGIN_AUDIOMUSEAI_MENU_SIMILAR_ARTIST
-	EN	Similar to artist...
+	EN	Similar to an artist (browse)...
 
 PLUGIN_AUDIOMUSEAI_MENU_FINGERPRINT
 	EN	Sonic Fingerprint
@@ -131,6 +131,12 @@ PLUGIN_AUDIOMUSEAI_PICK_BROWSE_LIBRARY
 
 PLUGIN_AUDIOMUSEAI_MORE
 	EN	More...
+
+PLUGIN_AUDIOMUSEAI_HINT_PICK_FOR_SONG
+	EN	→ Pick an artist below, then a song:
+
+PLUGIN_AUDIOMUSEAI_HINT_PICK_FOR_ARTIST
+	EN	→ Pick an artist below to find similar artists:
 
 PLUGIN_AUDIOMUSEAI_USE_AS_TYPED
 	EN	Use '%s' (typed)

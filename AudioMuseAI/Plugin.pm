@@ -24,7 +24,7 @@ use Slim::Menu::TrackInfo;
 use Slim::Menu::AlbumInfo;
 
 use constant {
-	VERSION             => '0.2.19',
+	VERSION             => '0.2.20',
 	HEALTHCHECK_DELAY   => 5,
 	# Cap search-result menus to keep the UI navigable on hardware
 	# controllers; AudioMuse can return hundreds of tracks for prolific
@@ -587,6 +587,18 @@ sub _browseArtists {
 	my $page = BROWSE_PAGE_SIZE;
 	my @items;
 	my $total = 0;
+
+	# Non-actionable header item — only on the first page — explains the
+	# drill-down flow to users who tap 'Similar to song' / 'Similar to
+	# artist' expecting an immediate result list. Items without an
+	# 'actions' block render as a non-tappable label (or grayed-out
+	# disabled item, depending on controller).
+	if ($start == 0) {
+		my $hint_key = $target eq 'similar_song_search'
+			? 'PLUGIN_AUDIOMUSEAI_HINT_PICK_FOR_SONG'
+			: 'PLUGIN_AUDIOMUSEAI_HINT_PICK_FOR_ARTIST';
+		push @items, { text => string($hint_key) };
+	}
 
 	eval {
 		my $req = Slim::Control::Request::executeRequest(undef,
