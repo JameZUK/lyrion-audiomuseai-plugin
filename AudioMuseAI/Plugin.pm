@@ -24,7 +24,7 @@ use Slim::Menu::TrackInfo;
 use Slim::Menu::AlbumInfo;
 
 use constant {
-	VERSION             => '0.2.10',
+	VERSION             => '0.2.11',
 	HEALTHCHECK_DELAY   => 5,
 	# Cap search-result menus to keep the UI navigable on hardware
 	# controllers; AudioMuse can return hundreds of tracks for prolific
@@ -36,6 +36,10 @@ use constant {
 	FINDPATH_MAX_STEPS  => 12,
 	# Per-player ring buffer for recent CLAP/instant prompts.
 	RECENT_PROMPTS_MAX  => 5,
+	# Page size for paginated artist browse — large enough to scroll
+	# through a few albums quickly, small enough that the round-trip
+	# is fast on slow controllers.
+	BROWSE_PAGE_SIZE    => 200,
 };
 
 my $log = Slim::Utils::Log->addLogCategory({
@@ -92,6 +96,11 @@ sub initPlugin {
 	# entries in similar_song / similar_artist for actual autocomplete.
 	Slim::Control::Request::addDispatch(['audiomuseai', 'filter_artists'],
 		[1, 1, 1, \&_filterArtists]);
+	# Tap-only paginated artist browse (no text input required —
+	# necessary for controllers like Squeezer that don't render the
+	# Jive 'input' field at all).
+	Slim::Control::Request::addDispatch(['audiomuseai', 'browse_artists'],
+		[1, 1, 1, \&_browseArtists]);
 
 	# Direct actions ---------------------------------------------------------
 	Slim::Control::Request::addDispatch(['audiomuseai', 'similar_now'],
@@ -483,11 +492,12 @@ sub _menuDynamic {
 sub _menuSimilarSong {
 	my $request = shift;
 	my $client  = $request->client or return $request->setStatusBadParams;
-	# A single text-input that filters the Lyrion library against the
-	# typed substring and presents matching artists as a pick list. The
-	# `target` param tells _filterArtists which downstream dispatcher
-	# to wire each match item to.
+	# Two paths: paginated Lyrion browse (works in every controller)
+	# and a text-input filter (only renders in controllers that support
+	# Jive 'input' — Squeezer doesn't, but Material / iPeng / default
+	# web UI do).
 	_emit($request, [
+		_browseEntryItem('similar_song_search'),
 		_artistFilterInput('similar_song_search'),
 	]);
 }
@@ -496,8 +506,84 @@ sub _menuSimilarArtist {
 	my $request = shift;
 	my $client  = $request->client or return $request->setStatusBadParams;
 	_emit($request, [
+		_browseEntryItem('similar_artist'),
 		_artistFilterInput('similar_artist'),
 	]);
+}
+
+sub _browseEntryItem {
+	my $target = shift;
+	return {
+		text    => string('PLUGIN_AUDIOMUSEAI_PICK_BROWSE_LIBRARY'),
+		actions => {
+			go => {
+				cmd    => ['audiomuseai', 'browse_artists'],
+				player => 1,
+				params => { target => $target, start => 0 },
+			},
+		},
+	};
+}
+
+# Paginated artist browse. Re-enters itself with start += BROWSE_PAGE_SIZE
+# via a 'More...' item at the bottom. We also set count/offset so
+# controllers that honour Jive's native pagination (Material, default web
+# UI) page server-side as the user scrolls. Squeezer ignores those but
+# the static 'More...' item works.
+sub _browseArtists {
+	my $request = shift;
+	my $client  = $request->client or return $request->setStatusBadParams;
+	my $start   = int($request->getParam('start') // 0);
+	$start = 0 if $start < 0;
+	my $target  = $request->getParam('target') || 'similar_artist';
+	$target = 'similar_artist'
+		unless grep { $_ eq $target } qw(similar_artist similar_song_search);
+
+	my $page = BROWSE_PAGE_SIZE;
+	my @items;
+	my $total = 0;
+
+	eval {
+		my $req = Slim::Control::Request::executeRequest(undef,
+			['artists', "$start", "$page"]);
+		return unless $req;
+		$total = $req->getResult('count') // 0;
+		my $loop = $req->getResult('artists_loop') || [];
+		for my $a (@$loop) {
+			my $name = $a->{artist} // $a->{name};
+			next unless defined $name && length $name;
+			push @items, _libraryArtistItem($name,
+				['audiomuseai', $target]);
+		}
+	};
+	$log->warn("browse_artists failed at start=$start: $@") if $@;
+
+	# 'More...' if there are further pages. Self-dispatches with
+	# start advanced by one page.
+	if ($total > $start + scalar(@items)) {
+		my $next = $start + scalar(@items);
+		push @items, {
+			text    => sprintf('More... (%d-%d of %d)',
+				$next + 1, ($next + $page > $total ? $total : $next + $page), $total),
+			actions => {
+				go => {
+					cmd    => ['audiomuseai', 'browse_artists'],
+					player => 1,
+					params => { target => $target, start => $next },
+				},
+			},
+		};
+	}
+
+	if (!@items) {
+		push @items, { text => string('PLUGIN_AUDIOMUSEAI_NO_RESULTS') };
+	}
+
+	# Set total / offset for clients that support server-side pagination.
+	$request->addResult('count',  scalar @items);
+	$request->addResult('offset', 0);
+	$request->addResult('item_loop', \@items);
+	$request->setStatusDone;
 }
 
 # Filter the Lyrion artist list by a typed substring and present matches.
