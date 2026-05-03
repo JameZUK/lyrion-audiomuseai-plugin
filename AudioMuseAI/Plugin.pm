@@ -24,7 +24,7 @@ use Slim::Menu::TrackInfo;
 use Slim::Menu::AlbumInfo;
 
 use constant {
-	VERSION             => '0.2.14',
+	VERSION             => '0.2.15',
 	HEALTHCHECK_DELAY   => 5,
 	# Cap search-result menus to keep the UI navigable on hardware
 	# controllers; AudioMuse can return hundreds of tracks for prolific
@@ -501,20 +501,23 @@ sub _menuDynamic {
 
 sub _menuSimilarSong {
 	my $request = shift;
-	# No $client requirement — the builder just emits items. The items
-	# themselves declare player=>1 so the actual action picks up the
-	# current player when fired.
+	$log->info('menu_similar_song reached (client='
+		. ($request->client ? $request->client->id : 'none') . ')');
+	# Diagnostic: only the browse path. Removing the text-input item
+	# tests whether Squeezer is bailing on submenus that contain a
+	# Jive 'input' field it can't render. Web UI users still have the
+	# context-menu route via My Music -> Artists -> tap -> AudioMuse.
 	_emit($request, [
 		_browseEntryItem('similar_song_search'),
-		_artistFilterInput('similar_song_search'),
 	], 'PLUGIN_AUDIOMUSEAI_MENU_SIMILAR_SONG');
 }
 
 sub _menuSimilarArtist {
 	my $request = shift;
+	$log->info('menu_similar_artist reached (client='
+		. ($request->client ? $request->client->id : 'none') . ')');
 	_emit($request, [
 		_browseEntryItem('similar_artist'),
-		_artistFilterInput('similar_artist'),
 	], 'PLUGIN_AUDIOMUSEAI_MENU_SIMILAR_ARTIST');
 }
 
@@ -697,15 +700,14 @@ sub _libraryArtistItem {
 
 sub _menuInstant {
 	my $request = shift;
-	# No client requirement — recent prompts are best-effort. Builder
-	# always returns at least the 'New prompt...' input so the menu is
-	# non-empty even when no player is in scope.
-	my $client = $request->client;
+	my $client  = $request->client;
+	$log->info('menu_instant reached (client='
+		. ($client ? $client->id : 'none') . ')');
 
+	# Diagnostic: drop the 'New prompt...' text input item. If Squeezer
+	# now renders this submenu the issue was the input item; if it still
+	# flashes we're after something else.
 	my @menu;
-	push @menu, _textInputItem('PLUGIN_AUDIOMUSEAI_INSTANT_NEW',
-		'PLUGIN_AUDIOMUSEAI_PROMPT_INSTANT',
-		['audiomuseai', 'instant'], 'prompt');
 
 	if ($client) {
 		my $recents = $prefs->client($client)->get('recent_prompts');
@@ -725,6 +727,11 @@ sub _menuInstant {
 			};
 		}
 	}
+	# Always have at least one item so the menu has content; helps
+	# distinguish "menu rendered but empty" from "menu auto-dismissed".
+	push @menu, { text => string('PLUGIN_AUDIOMUSEAI_INSTANT_HINT') }
+		unless @menu;
+
 	_emit($request, \@menu, 'PLUGIN_AUDIOMUSEAI_MENU_INSTANT');
 }
 

@@ -120,6 +120,9 @@ PLUGIN_AUDIOMUSEAI_MENU_SAVE_PLAYLIST
 PLUGIN_AUDIOMUSEAI_INSTANT_NEW
 	EN	New prompt...
 
+PLUGIN_AUDIOMUSEAI_INSTANT_HINT
+	EN	(No recent prompts yet — type one via the web UI or run via JSON-RPC)
+
 PLUGIN_AUDIOMUSEAI_PICK_TYPE_ARTIST
 	EN	Type custom artist name...
 
