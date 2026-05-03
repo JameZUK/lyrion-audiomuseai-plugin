@@ -81,6 +81,40 @@
 </div>
 
 <div class="prefsLine">
+	<div class="prefsLabel">[% "PLUGIN_AUDIOMUSEAI_NAME_FORMAT" | string %]</div>
+	<div class="prefsDesc">[% "PLUGIN_AUDIOMUSEAI_NAME_FORMAT_DESC" | string %]</div>
+	<div class="prefsValue">
+		<select name="pref_save_playlist_format">
+			[% FOREACH opt = ['timestamp','first_track','artist_mix','mood_tagged','prompt'] %]
+				<option value="[% opt %]" [% 'selected="selected"' IF prefs.save_playlist_format == opt %]>
+					[% IF opt == 'timestamp' %][% "PLUGIN_AUDIOMUSEAI_NAME_FORMAT_TIMESTAMP" | string %][% END %]
+					[% IF opt == 'first_track' %][% "PLUGIN_AUDIOMUSEAI_NAME_FORMAT_FIRST_TRACK" | string %][% END %]
+					[% IF opt == 'artist_mix' %][% "PLUGIN_AUDIOMUSEAI_NAME_FORMAT_ARTIST_MIX" | string %][% END %]
+					[% IF opt == 'mood_tagged' %][% "PLUGIN_AUDIOMUSEAI_NAME_FORMAT_MOOD_TAGGED" | string %][% END %]
+					[% IF opt == 'prompt' %][% "PLUGIN_AUDIOMUSEAI_NAME_FORMAT_PROMPT" | string %][% END %]
+				</option>
+			[% END %]
+		</select>
+	</div>
+</div>
+
+<div class="prefsLine">
+	<div class="prefsLabel">[% "PLUGIN_AUDIOMUSEAI_AUTO_SAVE_INSTANT" | string %]</div>
+	<div class="prefsDesc">[% "PLUGIN_AUDIOMUSEAI_AUTO_SAVE_INSTANT_DESC" | string %]</div>
+	<div class="prefsValue">
+		<input type="checkbox" name="pref_auto_save_instant" value="1" [% IF prefs.auto_save_instant %]checked="checked"[% END %] />
+	</div>
+</div>
+
+<div class="prefsLine">
+	<div class="prefsLabel">[% "PLUGIN_AUDIOMUSEAI_AUTO_SAVE_MOOD" | string %]</div>
+	<div class="prefsDesc">[% "PLUGIN_AUDIOMUSEAI_AUTO_SAVE_MOOD_DESC" | string %]</div>
+	<div class="prefsValue">
+		<input type="checkbox" name="pref_auto_save_mood" value="1" [% IF prefs.auto_save_mood %]checked="checked"[% END %] />
+	</div>
+</div>
+
+<div class="prefsLine">
 	<div class="prefsLabel">[% "PLUGIN_AUDIOMUSEAI_TEST_CONNECTION" | string %]</div>
 	<div class="prefsValue">
 		<input type="submit" name="test_connection" value="[% 'PLUGIN_AUDIOMUSEAI_TEST_CONNECTION' | string %]" />

@@ -24,7 +24,7 @@ use Slim::Menu::TrackInfo;
 use Slim::Menu::AlbumInfo;
 
 use constant {
-	VERSION             => '0.2.21',
+	VERSION             => '0.2.22',
 	HEALTHCHECK_DELAY   => 5,
 	# Cap search-result menus to keep the UI navigable on hardware
 	# controllers; AudioMuse can return hundreds of tracks for prolific
@@ -57,10 +57,19 @@ sub initPlugin {
 	my $class = shift;
 
 	$prefs->init({
-		url           => 'http://localhost:8000',
-		token         => '',
-		default_count => 25,
-		dstm_enabled  => 0,
+		url                  => 'http://localhost:8000',
+		token                => '',
+		default_count        => 25,
+		dstm_enabled         => 0,
+		# Auto-name strategy for 'Save current queue as playlist'.
+		# One of: timestamp | first_track | artist_mix | mood_tagged | prompt.
+		save_playlist_format => 'timestamp',
+		# Auto-save the result of an Instant Playlist (text prompt) as
+		# a Lyrion playlist named after the prompt.
+		auto_save_instant    => 0,
+		# Auto-save the result of a Mood preset as a Lyrion playlist
+		# named after the mood label.
+		auto_save_mood       => 0,
 	});
 
 	# One-time: normalize any pre-existing values that may have come in
@@ -454,13 +463,17 @@ sub _menuMood {
 	my @menu;
 	for my $p (@presets) {
 		my ($key, $prompt) = @$p;
+		my $label = string($key);
 		push @menu, {
-			text    => string($key),
+			text    => $label,
 			actions => {
 				go => {
 					cmd    => ['audiomuseai', 'mood'],
 					player => 0,
-					params => { prompt => $prompt },
+					# mood_label is a human-friendly tag passed alongside
+					# the CLAP prompt; used for save_playlist_format=
+					# mood_tagged and for auto-save naming.
+					params => { prompt => $prompt, mood_label => $label },
 				},
 			},
 			nextWindow => 'refresh',
@@ -916,11 +929,17 @@ sub _instantPlaylist {
 	my $prompt  = _trim($request->getParam('prompt') // '');
 	return _notify($request, string('PLUGIN_AUDIOMUSEAI_EMPTY_INPUT')) unless length $prompt;
 	_recordRecentPrompt($client, $prompt);
+	# Remember the prompt for save_playlist_format=prompt and for the
+	# auto-save naming below.
+	$prefs->client($client)->set('last_instant_prompt', $prompt);
 	$log->info("instant playlist: $prompt");
 	$request->setStatusProcessing;
 	Plugins::AudioMuseAI::API::clap_search(
 		$prompt, _count($client),
-		sub { _queueResults($request, $client, shift, 1) },
+		sub {
+			_queueResults($request, $client, shift, 1);
+			_maybeAutoSave($client, 'instant', $prompt) if $prefs->get('auto_save_instant');
+		},
 		sub { _notifyError($request, shift) },
 	);
 }
@@ -941,12 +960,23 @@ sub _moodPlaylist {
 	my $request = shift;
 	my $client  = $request->client or return $request->setStatusBadParams;
 	my $prompt  = _trim($request->getParam('prompt') // '');
+	# Optional human-friendly label passed by the menu (e.g. 'Calm /
+	# Ambient'). Falls back to the prompt for direct CLI invocations.
+	my $label   = _trim($request->getParam('mood_label') // '') || $prompt;
 	return _notify($request, string('PLUGIN_AUDIOMUSEAI_EMPTY_INPUT')) unless length $prompt;
-	$log->info("mood playlist: $prompt");
+
+	# Record the most recent mood label so save_playlist_format=mood_tagged
+	# can use it.
+	$prefs->client($client)->set('last_mood_label', $label);
+
+	$log->info("mood playlist: $prompt (label=$label)");
 	$request->setStatusProcessing;
 	Plugins::AudioMuseAI::API::clap_search(
 		$prompt, _count($client),
-		sub { _queueResults($request, $client, shift, 1) },
+		sub {
+			_queueResults($request, $client, shift, 1);
+			_maybeAutoSave($client, 'mood', $label) if $prefs->get('auto_save_mood');
+		},
 		sub { _notifyError($request, shift) },
 	);
 }
@@ -1240,21 +1270,14 @@ sub _savePlaylist {
 	my $request = shift;
 	my $client  = $request->client or return $request->setStatusBadParams;
 
-	# Name comes from text input if the user typed one (works on web UI /
-	# Material). If absent (Squeezer / tap-only invocation), auto-name
-	# with timestamp so the menu item is reachable on every controller.
-	# Users can rename via Lyrion's standard playlist UI later.
+	# Name precedence:
+	#   1. user-typed `name` param (web UI / Material — they can override
+	#      the auto-name by typing in the field)
+	#   2. configured save_playlist_format applied to current state
+	#   3. timestamp fallback
 	my $name = _trim($request->getParam('name') // '');
-	unless (length $name) {
-		my @t = localtime();
-		$name = sprintf('AudioMuse %04d-%02d-%02d %02d:%02d',
-			$t[5] + 1900, $t[4] + 1, $t[3], $t[2], $t[1]);
-	}
-
-	# Reject control / path-injecting characters even in the auto-name
-	# (defensive — should not happen given our format string).
-	$name =~ s/[\x00-\x1f\x7f]//g;
-	$name =~ s{[/\\]}{-}g;
+	$name = _generateAutoName($client) unless length $name;
+	$name = _sanitisePlaylistName($name);
 
 	my $count = Slim::Player::Playlist::count($client);
 	if (!$count) {
@@ -1269,6 +1292,102 @@ sub _savePlaylist {
 	);
 	_notify($request, sprintf('%s (%d tracks): %s',
 		string('PLUGIN_AUDIOMUSEAI_PLAYLIST_SAVED'), $count, $name));
+}
+
+# --- Auto-name + auto-save helpers ------------------------------------------
+
+sub _sanitisePlaylistName {
+	my $n = shift // '';
+	$n =~ s/[\x00-\x1f\x7f]//g;     # control chars
+	$n =~ s{[/\\]}{-}g;              # path separators
+	$n =~ s/\s+/ /g;                  # collapse whitespace
+	$n = _trim($n);
+	$n = substr($n, 0, 80) if length($n) > 80;
+	$n = 'AudioMuse playlist' unless length $n;
+	return $n;
+}
+
+sub _timestamp {
+	my @t = localtime();
+	return sprintf('%04d-%02d-%02d %02d:%02d',
+		$t[5] + 1900, $t[4] + 1, $t[3], $t[2], $t[1]);
+}
+
+sub _generateAutoName {
+	my ($client, $extra) = @_;
+	my $fmt = $prefs->get('save_playlist_format') || 'timestamp';
+
+	# Per-client extras (last mood label, last instant prompt) drive the
+	# tagged formats. $extra (when called from auto-save) overrides them.
+	$extra //= {};
+	my $mood   = $extra->{mood}
+		// $prefs->client($client)->get('last_mood_label');
+	my $prompt = $extra->{prompt}
+		// $prefs->client($client)->get('last_instant_prompt');
+
+	if ($fmt eq 'first_track') {
+		my $song = Slim::Player::Playlist::song($client, 0);
+		if ($song) {
+			my $title  = $song->title // '';
+			my $artist = $song->artistName // '';
+			return $title || 'AudioMuse: ' . _timestamp() unless length $artist;
+			return sprintf('AudioMuse: %s - %s', $title, $artist);
+		}
+	}
+	elsif ($fmt eq 'artist_mix') {
+		my %seen; my @top;
+		my $count = Slim::Player::Playlist::count($client);
+		for (my $i = 0; $i < $count && @top < 3; $i++) {
+			my $s = Slim::Player::Playlist::song($client, $i) or next;
+			my $a = $s->artistName // '' or next;
+			next if $seen{$a}++;
+			push @top, $a;
+		}
+		if (@top) {
+			return sprintf('AudioMuse: %s (%dt)', join(', ', @top), $count);
+		}
+	}
+	elsif ($fmt eq 'mood_tagged' && $mood) {
+		return sprintf('AudioMuse: %s - %s', $mood, _timestamp());
+	}
+	elsif ($fmt eq 'prompt' && $prompt) {
+		return sprintf('AudioMuse: %s', $prompt);
+	}
+
+	# Fallback for any unrecognised format and for the explicit
+	# 'timestamp' choice.
+	return 'AudioMuse ' . _timestamp();
+}
+
+# Save the player's current queue without going through the user-facing
+# notification. Used by auto-save after Instant Playlist / Mood actions.
+sub _maybeAutoSave {
+	my ($client, $kind, $label) = @_;
+	return unless $client;
+	my $count = Slim::Player::Playlist::count($client);
+	return unless $count;
+
+	# Compose a name biased toward the current action's context.
+	my $extra = $kind eq 'mood'    ? { mood   => $label }
+	          : $kind eq 'instant' ? { prompt => $label }
+	          : {};
+	# For auto-save, prefer a context-aware name even when the global
+	# format pref is 'timestamp' — the user already gave us a label.
+	my $name;
+	if ($kind eq 'mood') {
+		$name = sprintf('AudioMuse: %s - %s', $label, _timestamp());
+	} elsif ($kind eq 'instant') {
+		$name = sprintf('AudioMuse: %s', $label);
+	} else {
+		$name = _generateAutoName($client, $extra);
+	}
+	$name = _sanitisePlaylistName($name);
+
+	$log->info("auto-saving $kind queue ($count tracks) as '$name' on " . $client->id);
+	Slim::Control::Request::executeRequest(
+		$client,
+		['playlist', 'save', $name]
+	);
 }
 
 sub _testResult {

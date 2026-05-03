@@ -17,7 +17,10 @@ sub name { 'PLUGIN_AUDIOMUSEAI' }
 sub page { 'plugins/AudioMuseAI/settings/basic.html' }
 
 sub prefs {
-	return ($prefs, qw(url token default_count dstm_enabled));
+	return ($prefs, qw(
+		url token default_count dstm_enabled
+		save_playlist_format auto_save_instant auto_save_mood
+	));
 }
 
 sub _trim {
@@ -53,6 +56,14 @@ sub handler {
 		$n = 5   if $n < 5;
 		$n = 100 if $n > 100;
 		$params->{pref_default_count} = int($n);
+	}
+
+	# Whitelist for save_playlist_format — guards against form-tampering.
+	if (defined $params->{pref_save_playlist_format}) {
+		my %ok = map { $_ => 1 }
+			qw(timestamp first_track artist_mix mood_tagged prompt);
+		$params->{pref_save_playlist_format} = 'timestamp'
+			unless $ok{ $params->{pref_save_playlist_format} };
 	}
 
 	my $is_post = grep { /^pref_/ } keys %$params;

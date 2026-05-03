@@ -28,6 +28,39 @@ PLUGIN_AUDIOMUSEAI_DSTM
 PLUGIN_AUDIOMUSEAI_DSTM_DESC
 	EN	When the player's queue runs low, automatically add more similar / fingerprint tracks based on the most recently activated dynamic mode for that player. Use the Dynamic Playlists submenu to start a mode; "Stop auto-extend" clears it.
 
+PLUGIN_AUDIOMUSEAI_NAME_FORMAT
+	EN	Auto-name format for "Save current queue"
+
+PLUGIN_AUDIOMUSEAI_NAME_FORMAT_DESC
+	EN	How the auto-named playlist is titled when you tap "Save current queue as playlist". Web UI users can still type a custom name in the field; this setting only controls the default. No AI is used — names are derived from local data.
+
+PLUGIN_AUDIOMUSEAI_NAME_FORMAT_TIMESTAMP
+	EN	Timestamp — e.g. "AudioMuse 2026-05-03 14:30"
+
+PLUGIN_AUDIOMUSEAI_NAME_FORMAT_FIRST_TRACK
+	EN	First track — e.g. "AudioMuse: 1933 - Frank Turner"
+
+PLUGIN_AUDIOMUSEAI_NAME_FORMAT_ARTIST_MIX
+	EN	Artist mix — e.g. "AudioMuse: Frank Turner, Phish, U2 (24t)"
+
+PLUGIN_AUDIOMUSEAI_NAME_FORMAT_MOOD_TAGGED
+	EN	Mood-tagged — e.g. "AudioMuse: Calm / Ambient - 2026-05-03 14:30"
+
+PLUGIN_AUDIOMUSEAI_NAME_FORMAT_PROMPT
+	EN	Last Instant Playlist prompt — e.g. "AudioMuse: low-energy ambient"
+
+PLUGIN_AUDIOMUSEAI_AUTO_SAVE_INSTANT
+	EN	Auto-save Instant Playlist results
+
+PLUGIN_AUDIOMUSEAI_AUTO_SAVE_INSTANT_DESC
+	EN	After every Instant Playlist (text-prompt) action, save the queue as a Lyrion playlist named after the prompt — e.g. "AudioMuse: low-energy ambient".
+
+PLUGIN_AUDIOMUSEAI_AUTO_SAVE_MOOD
+	EN	Auto-save Browse-by-Mood results
+
+PLUGIN_AUDIOMUSEAI_AUTO_SAVE_MOOD_DESC
+	EN	After tapping a Browse-by-Mood preset, save the queue as a Lyrion playlist named after the mood and current time — e.g. "AudioMuse: Calm / Ambient - 2026-05-03 14:30".
+
 PLUGIN_AUDIOMUSEAI_TEST_CONNECTION
 	EN	Test connection
 
