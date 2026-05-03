@@ -180,6 +180,26 @@ sub clap_top_queries {
 	_get('/api/clap/top_queries', $cb_ok, $cb_err, TIMEOUT_FAST, 300);
 }
 
+# LLM-driven playlist generation. The chat blueprint is mounted at
+# /chat upstream, so the URL is /chat/api/chatPlaylist (NOT /api/...).
+# Response shape:
+#   { response: {
+#       message:           '...AI processing log...',
+#       original_request:  '<userInput>',
+#       ai_provider_used:  'OPENAI'|'GEMINI'|'OLLAMA'|'MISTRAL'|'NONE',
+#       ai_model_selected: '...',
+#       executed_query:    '<SQL>',
+#       query_results:     [ { item_id, title, artist }, ... ] | null
+#   } }
+# When ai_provider_used is NONE the server refuses with a message
+# explaining no provider is configured — surfaced verbatim to the user.
+sub chat_playlist {
+	my ($user_input, $cb_ok, $cb_err) = @_;
+	# LLM round-trips can take 30s+. Use the long timeout.
+	_post('/chat/api/chatPlaylist', { userInput => $user_input },
+		$cb_ok, $cb_err, TIMEOUT_LONG);
+}
+
 sub cancel_task {
 	my ($task_id, $cb_ok, $cb_err) = @_;
 	_post('/api/cancel/' . uri_escape_utf8($task_id), {},

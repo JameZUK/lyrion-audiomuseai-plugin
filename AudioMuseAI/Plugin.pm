@@ -24,7 +24,7 @@ use Slim::Menu::TrackInfo;
 use Slim::Menu::AlbumInfo;
 
 use constant {
-	VERSION             => '0.2.24',
+	VERSION             => '0.2.25',
 	HEALTHCHECK_DELAY   => 5,
 	# Cap search-result menus to keep the UI navigable on hardware
 	# controllers; AudioMuse can return hundreds of tracks for prolific
@@ -206,6 +206,12 @@ sub initPlugin {
 	# tappable preset queries — pure discovery / inspiration.
 	Slim::Control::Request::addDispatch(['audiomuseai', 'menu_top_queries'],
 		[0, 1, 1, \&_menuTopQueries]);
+	# LLM-driven playlist via /chat/api/chatPlaylist — uses whatever
+	# AI_MODEL_PROVIDER (and corresponding model / key) the user has
+	# configured on their AudioMuse server. The plugin is provider-
+	# agnostic; it just submits userInput and renders the response.
+	Slim::Control::Request::addDispatch(['audiomuseai', 'chat_playlist'],
+		[1, 1, 1, \&_chatPlaylist]);
 
 	# Top-level menu under My Music. The 'icon' field is honoured by
 	# Material, default web UI, iPeng, and Squeezer (where it shows
@@ -416,6 +422,11 @@ sub _topMenu {
 	push @menu, _textInputItem('PLUGIN_AUDIOMUSEAI_MENU_INSTANT',
 		'PLUGIN_AUDIOMUSEAI_PROMPT_INSTANT',
 		['audiomuseai', 'instant'], 'prompt');
+	# LLM-driven version of the same idea — different backend (server-
+	# configured AI provider) but same UX (type a prompt, get a queue).
+	push @menu, _textInputItem('PLUGIN_AUDIOMUSEAI_MENU_CHAT',
+		'PLUGIN_AUDIOMUSEAI_PROMPT_CHAT',
+		['audiomuseai', 'chat_playlist'], 'prompt');
 	# findpath_search returns a track-pick menu (not a notification),
 	# so it should NOT have nextWindow:refresh — that would close the
 	# pushed picker.
@@ -1055,6 +1066,59 @@ sub _recordRecentPrompt {
 	unshift @$list, $prompt;
 	@$list = @$list[0 .. RECENT_PROMPTS_MAX - 1] if @$list > RECENT_PROMPTS_MAX;
 	$prefs->client($client)->set('recent_prompts', $list);
+}
+
+# LLM-driven playlist via /chat/api/chatPlaylist. Same UX as
+# _instantPlaylist (prompt -> queue) but the backend translates the
+# prompt into SQL via the configured AI provider rather than running
+# CLAP audio similarity.
+sub _chatPlaylist {
+	my $request = shift;
+	my $client  = $request->client or return $request->setStatusBadParams;
+	my $prompt  = _trim($request->getParam('prompt') // '');
+	return _notify($request, string('PLUGIN_AUDIOMUSEAI_EMPTY_INPUT')) unless length $prompt;
+
+	_recordRecentPrompt($client, $prompt);
+	$prefs->client($client)->set('last_instant_prompt', $prompt);
+	$log->info('chat playlist: ' . _logSafe($prompt));
+	$request->setStatusProcessing;
+
+	Plugins::AudioMuseAI::API::chat_playlist(
+		$prompt,
+		sub {
+			my $data = shift;
+			my $resp = (ref($data) eq 'HASH') ? $data->{response} : undef;
+			unless (ref($resp) eq 'HASH') {
+				return _notify($request, string('PLUGIN_AUDIOMUSEAI_NO_RESULTS'));
+			}
+
+			my $tracks = $resp->{query_results};
+			my $msg    = $resp->{message} // '';
+			my $prov   = $resp->{ai_provider_used} // '';
+
+			# 'NONE' provider -> server refused. Surface the message
+			# verbatim so the user knows what to fix.
+			if ($prov eq 'NONE' || $prov eq '') {
+				return _notify($request, length $msg
+					? "AudioMuse-AI: $msg"
+					: string('PLUGIN_AUDIOMUSEAI_CHAT_NO_PROVIDER'));
+			}
+			unless (ref($tracks) eq 'ARRAY' && @$tracks) {
+				return _notify($request, length $msg
+					? "AudioMuse-AI ($prov): $msg"
+					: string('PLUGIN_AUDIOMUSEAI_NO_RESULTS'));
+			}
+
+			# Queue the AI's tracks. _queueResults handles its own
+			# notification ("Queued N tracks…").
+			_queueResults($request, $client, $tracks, 1);
+			# Auto-save uses the same toggle as Instant Playlist —
+			# both are user-typed prompt → queue.
+			_maybeAutoSave($client, 'instant', $prompt)
+				if $prefs->get('auto_save_instant');
+		},
+		sub { _notifyError($request, shift) },
+	);
 }
 
 sub _moodPlaylist {

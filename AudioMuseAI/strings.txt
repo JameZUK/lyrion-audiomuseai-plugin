@@ -129,6 +129,15 @@ PLUGIN_AUDIOMUSEAI_MENU_FINGERPRINT
 PLUGIN_AUDIOMUSEAI_MENU_INSTANT
 	EN	Instant Playlist (text — needs typing)...
 
+PLUGIN_AUDIOMUSEAI_MENU_CHAT
+	EN	AI Chat Playlist (LLM, text — needs typing)...
+
+PLUGIN_AUDIOMUSEAI_PROMPT_CHAT
+	EN	Describe the playlist in plain language — the LLM will translate it to a query.
+
+PLUGIN_AUDIOMUSEAI_CHAT_NO_PROVIDER
+	EN	No AI provider configured on the AudioMuse-AI server. Set AI_MODEL_PROVIDER (and the matching API key/model) in the AudioMuse-AI web UI under Administration.
+
 PLUGIN_AUDIOMUSEAI_MENU_MOOD
 	EN	Browse by Mood
 
