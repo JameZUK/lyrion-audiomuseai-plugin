@@ -136,7 +136,7 @@ PLUGIN_AUDIOMUSEAI_MENU_ALCHEMY
 	EN	Song Alchemy
 
 PLUGIN_AUDIOMUSEAI_MENU_FINDPATH
-	EN	Find Path between two songs (text — needs typing)...
+	EN	Build a sonic journey between two songs (text — needs typing)...
 
 PLUGIN_AUDIOMUSEAI_MENU_DYNAMIC
 	EN	Dynamic Playlists

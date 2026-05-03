@@ -24,7 +24,7 @@ use Slim::Menu::TrackInfo;
 use Slim::Menu::AlbumInfo;
 
 use constant {
-	VERSION             => '0.2.22',
+	VERSION             => '0.2.23',
 	HEALTHCHECK_DELAY   => 5,
 	# Cap search-result menus to keep the UI navigable on hardware
 	# controllers; AudioMuse can return hundreds of tracks for prolific
@@ -356,8 +356,12 @@ sub _topMenu {
 	if (my $hdr = _statusHeaderItem($cached)) {
 		push @menu, $hdr;
 	}
-	# Prime the cache (fire-and-forget; ignore the result).
-	Plugins::AudioMuseAI::API::active_tasks(sub {}, sub {});
+	# Only prime the cache when it's empty — peek already returned
+	# fresh data otherwise (5s TTL). Avoids a redundant HTTP round-trip
+	# on every menu open.
+	unless ($cached) {
+		Plugins::AudioMuseAI::API::active_tasks(sub {}, sub {});
+	}
 
 	# --- Tier 1: one-tap actions, most common ---
 	push @menu, _actionItem('PLUGIN_AUDIOMUSEAI_MENU_SIMILAR_NOW',
@@ -514,13 +518,30 @@ sub _menuFindPath {
 
 sub _menuDynamic {
 	my $request = shift;
+	my $client  = $request->client;
+	my $active  = $client ? ($prefs->client($client)->get('dstm_active') // '') : '';
+
+	# Prefix the currently-active mode with a tick so the user can see
+	# what's running and find 'Stop auto-extend' easily. Per-player.
+	my $tick = '✓ ';
+	my $sim_label = string('PLUGIN_AUDIOMUSEAI_DYNAMIC_SIMILAR');
+	my $fp_label  = string('PLUGIN_AUDIOMUSEAI_DYNAMIC_FINGERPRINT');
+	$sim_label = $tick . $sim_label if $active eq 'similar';
+	$fp_label  = $tick . $fp_label  if $active eq 'fingerprint';
+
 	_emit($request, [
-		_actionItem('PLUGIN_AUDIOMUSEAI_DYNAMIC_SIMILAR',
-			['audiomuseai', 'dyn_similar'], 1),
-		_actionItem('PLUGIN_AUDIOMUSEAI_DYNAMIC_FINGERPRINT',
-			['audiomuseai', 'dyn_fingerprint'], 1),
+		{
+			text    => $sim_label,
+			actions => { go => { cmd => ['audiomuseai', 'dyn_similar'], player => 0 } },
+			nextWindow => 'refresh',
+		},
+		{
+			text    => $fp_label,
+			actions => { go => { cmd => ['audiomuseai', 'dyn_fingerprint'], player => 0 } },
+			nextWindow => 'refresh',
+		},
 		_actionItem('PLUGIN_AUDIOMUSEAI_DYNAMIC_STOP',
-			['audiomuseai', 'dyn_stop'], 1),
+			['audiomuseai', 'dyn_stop']),
 	]);
 }
 
@@ -546,20 +567,6 @@ sub _menuSimilarArtist {
 	$request->addParam('target', 'similar_artist');
 	$request->addParam('start',  '0');
 	return _browseArtists($request);
-}
-
-sub _browseEntryItem {
-	my $target = shift;
-	return {
-		text    => string('PLUGIN_AUDIOMUSEAI_PICK_BROWSE_LIBRARY'),
-		actions => {
-			go => {
-				cmd    => ['audiomuseai', 'browse_artists'],
-				player => 0,
-				params => { target => $target, start => 0 },
-			},
-		},
-	};
 }
 
 # Paginated artist browse. Re-enters itself with start += BROWSE_PAGE_SIZE
@@ -674,30 +681,6 @@ sub _filterArtists {
 	_emit($request, \@items);
 }
 
-sub _artistFilterInput {
-	my $target = shift;
-	# filter_artists returns a pick menu — no nextWindow:refresh.
-	return {
-		text  => string('PLUGIN_AUDIOMUSEAI_PICK_TYPE_ARTIST'),
-		input => {
-			len  => 1,
-			help => { text => string('PLUGIN_AUDIOMUSEAI_PROMPT_ARTIST') },
-			softbutton1 => 'Insert',
-			softbutton2 => 'Delete',
-		},
-		actions => {
-			go => {
-				cmd    => ['audiomuseai', 'filter_artists'],
-				player => 0,
-				params => {
-					query  => '__TAGGEDINPUT__',
-					target => $target,
-				},
-			},
-		},
-	};
-}
-
 # Returns up to $limit artist names from Lyrion's library matching
 # $search (substring). When $search is empty/undef returns the first
 # $limit alphabetically. Uses Lyrion's built-in 'artists' CLI which is
@@ -761,8 +744,10 @@ sub _menuInstant {
 		$recents = [] unless ref($recents) eq 'ARRAY';
 		for my $p (@$recents) {
 			next unless defined $p && length $p;
+			# _safeText: prompts are user-typed and can contain entities
+			# / tags that would render literally in HTML-rendering skins.
 			push @menu, {
-				text    => $p,
+				text    => _safeText($p),
 				actions => {
 					go => {
 						cmd    => ['audiomuseai', 'instant'],
@@ -932,7 +917,7 @@ sub _instantPlaylist {
 	# Remember the prompt for save_playlist_format=prompt and for the
 	# auto-save naming below.
 	$prefs->client($client)->set('last_instant_prompt', $prompt);
-	$log->info("instant playlist: $prompt");
+	$log->info("instant playlist: " . _logSafe($prompt));
 	$request->setStatusProcessing;
 	Plugins::AudioMuseAI::API::clap_search(
 		$prompt, _count($client),
@@ -969,7 +954,7 @@ sub _moodPlaylist {
 	# can use it.
 	$prefs->client($client)->set('last_mood_label', $label);
 
-	$log->info("mood playlist: $prompt (label=$label)");
+	$log->info("mood playlist: " . _logSafe($prompt) . " (label=" . _logSafe($label) . ")");
 	$request->setStatusProcessing;
 	Plugins::AudioMuseAI::API::clap_search(
 		$prompt, _count($client),
@@ -1285,7 +1270,7 @@ sub _savePlaylist {
 			string('PLUGIN_AUDIOMUSEAI_PLAYLIST_EMPTY'));
 	}
 
-	$log->info("saving Lyrion queue ($count tracks) as playlist '$name' on " . $client->id);
+	$log->info("saving Lyrion queue ($count tracks) as playlist '" . _logSafe($name) . "' on " . $client->id);
 	Slim::Control::Request::executeRequest(
 		$client,
 		['playlist', 'save', $name]
@@ -1383,7 +1368,7 @@ sub _maybeAutoSave {
 	}
 	$name = _sanitisePlaylistName($name);
 
-	$log->info("auto-saving $kind queue ($count tracks) as '$name' on " . $client->id);
+	$log->info("auto-saving $kind queue ($count tracks) as '" . _logSafe($name) . "' on " . $client->id);
 	Slim::Control::Request::executeRequest(
 		$client,
 		['playlist', 'save', $name]
@@ -1446,6 +1431,15 @@ sub _trim {
 	return '' unless defined $s;
 	$s =~ s/\A\s+//;
 	$s =~ s/\s+\z//;
+	return $s;
+}
+
+# Make a string safe for log lines — strips ASCII control chars
+# (newlines, CR, tab, etc.) so user-supplied prompts can't inject false
+# log entries.
+sub _logSafe {
+	my $s = shift // '';
+	$s =~ s/[\x00-\x1f\x7f]/?/g;
 	return $s;
 }
 
