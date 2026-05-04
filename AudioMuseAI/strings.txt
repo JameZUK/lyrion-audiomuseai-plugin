@@ -319,6 +319,9 @@ PLUGIN_AUDIOMUSEAI_BUSY
 PLUGIN_AUDIOMUSEAI_AUTH_FAIL
 	EN	AudioMuse-AI auth failed: check API token in plugin settings.
 
+PLUGIN_AUDIOMUSEAI_TRACK_NOT_INDEXED
+	EN	This track isn't in AudioMuse-AI's index yet — probably hasn't been analyzed. Wait for analysis to cover this album, or pick a different track.
+
 PLUGIN_AUDIOMUSEAI_TIMEOUT
 	EN	AudioMuse-AI timed out. The server may be overloaded or rebuilding indexes.
 

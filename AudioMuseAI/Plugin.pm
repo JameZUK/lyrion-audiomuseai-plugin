@@ -24,7 +24,7 @@ use Slim::Menu::TrackInfo;
 use Slim::Menu::AlbumInfo;
 
 use constant {
-	VERSION             => '0.2.25',
+	VERSION             => '0.2.26',
 	HEALTHCHECK_DELAY   => 5,
 	# Cap search-result menus to keep the UI navigable on hardware
 	# controllers; AudioMuse can return hundreds of tracks for prolific
@@ -1859,6 +1859,11 @@ sub _notifyError {
 
 	if ($err =~ /\b401\b|\b403\b/ || $err =~ /unauthor/i || $err =~ /forbidden/i) {
 		_notify($request, string('PLUGIN_AUDIOMUSEAI_AUTH_FAIL'));
+	} elsif ($err =~ /\b404\b|not found/i) {
+		# AudioMuse returns 404 for similar_tracks etc. when the track
+		# isn't in its index. Most common cause: the track / album
+		# hasn't been analyzed yet (large libraries take days).
+		_notify($request, string('PLUGIN_AUDIOMUSEAI_TRACK_NOT_INDEXED'));
 	} elsif ($err =~ /timeout/i) {
 		_notify($request, string('PLUGIN_AUDIOMUSEAI_TIMEOUT'));
 	} elsif ($err =~ /\b(?:5\d\d)\b/) {
