@@ -1,0 +1,1 @@
+../../../../AudioMuseAI/Plugin.pm

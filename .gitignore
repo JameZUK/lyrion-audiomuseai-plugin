@@ -3,3 +3,13 @@
 *.tmp
 .DS_Store
 *.zip
+
+# Secrets — tests/.env can hold AUDIOMUSE_TOKEN; everything else is just
+# defence-in-depth. tests/.env.example is checked in as a template — the
+# `!` line re-includes it after the broader excludes match.
+.env
+.env.*
+*.token
+tests/.env
+tests/.env.*
+!tests/.env.example

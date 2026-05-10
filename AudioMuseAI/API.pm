@@ -277,18 +277,52 @@ sub find_path {
 sub clap_search {
 	my ($prompt, $n, $cb_ok, $cb_err) = @_;
 	$n ||= 25;
-	_post('/api/clap/search', { query => $prompt, n => $n },
+	# Server param is `limit`, not `n`. Response is wrapped:
+	# { query, count, results: [...] } — _queueResults / _extractTracks
+	# in Plugin.pm unwraps the `results` key.
+	_post('/api/clap/search', { query => $prompt, limit => $n },
 		$cb_ok, $cb_err, TIMEOUT_LONG);
 }
 
+# Build the alchemy payload. Items are passed as
+# { items: [{ id, op: ADD|SUBTRACT, type: song|artist }, ... ], n, ... }.
+# Plugin code uses song IDs only (alchemy_add / alchemy_sub lists are
+# populated from the player's currently-playing track), so type defaults
+# to 'song'. Response is wrapped: { results: [...], filtered_out: [...],
+# centroid_2d: ... } — the unwrap happens in _extractTracks.
 sub alchemy {
 	my ($add_ids, $sub_ids, $n, $cb_ok, $cb_err) = @_;
 	$n ||= 25;
+	my @items;
+	for my $id (@{ $add_ids || [] }) {
+		next unless defined $id && length $id;
+		push @items, { id => "$id", op => 'ADD', type => 'song' };
+	}
+	for my $id (@{ $sub_ids || [] }) {
+		next unless defined $id && length $id;
+		push @items, { id => "$id", op => 'SUBTRACT', type => 'song' };
+	}
 	_post('/api/alchemy', {
-		add => $add_ids || [],
-		sub => $sub_ids || [],
-		n   => $n,
+		items => \@items,
+		n     => $n,
 	}, $cb_ok, $cb_err, TIMEOUT_LONG);
+}
+
+# Pre-warm the CLAP text-search model so the first Instant Playlist
+# isn't slow (the model otherwise loads on first query). Idempotent —
+# also resets the server's 10-minute idle-eviction timer.
+sub clap_warmup {
+	my ($cb_ok, $cb_err) = @_;
+	_post('/api/clap/warmup', {}, $cb_ok, $cb_err, TIMEOUT_FAST);
+}
+
+# Free-text lyrics search via /api/lyrics/search/text. Returns the same
+# wrapped { query, count, results: [...] } shape as clap_search.
+sub lyrics_search {
+	my ($prompt, $n, $cb_ok, $cb_err) = @_;
+	$n ||= 25;
+	_post('/api/lyrics/search/text', { query => $prompt, limit => $n },
+		$cb_ok, $cb_err, TIMEOUT_LONG);
 }
 
 sub start_analysis {

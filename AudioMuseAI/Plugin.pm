@@ -24,7 +24,7 @@ use Slim::Menu::TrackInfo;
 use Slim::Menu::AlbumInfo;
 
 use constant {
-	VERSION             => '0.2.26',
+	VERSION             => '0.3.0',
 	HEALTHCHECK_DELAY   => 5,
 	# Cap search-result menus to keep the UI navigable on hardware
 	# controllers; AudioMuse can return hundreds of tracks for prolific
@@ -133,6 +133,10 @@ sub initPlugin {
 		[1, 1, 1, \&_instantPlaylist]);
 	Slim::Control::Request::addDispatch(['audiomuseai', 'mood'],
 		[1, 1, 1, \&_moodPlaylist]);
+	# Lyrics-based discovery: free-text query embedded server-side and
+	# matched against the lyrics voyager index. Same UX as Instant.
+	Slim::Control::Request::addDispatch(['audiomuseai', 'lyrics_search'],
+		[1, 1, 1, \&_lyricsSearch]);
 
 	# Alchemy ----------------------------------------------------------------
 	Slim::Control::Request::addDispatch(['audiomuseai', 'alchemy_add_now'],
@@ -349,6 +353,14 @@ sub _healthCheck {
 	Plugins::AudioMuseAI::API::ping(
 		sub {
 			$log->info('AudioMuse-AI reachable: ' . ($prefs->get('url') || 'unset'));
+			# Pre-warm the CLAP text-search model so the first Instant
+			# Playlist / Mood / Top Queries tap doesn't pay the model
+			# load cost (typically several seconds). Fire-and-forget;
+			# 503 if CLAP is disabled is fine — we just log debug.
+			Plugins::AudioMuseAI::API::clap_warmup(
+				sub { $log->debug('CLAP warmup OK'); },
+				sub { $log->debug('CLAP warmup skipped: ' . (shift // '?')); },
+			);
 		},
 		sub {
 			my $err = shift // 'unknown';
@@ -427,6 +439,12 @@ sub _topMenu {
 	push @menu, _textInputItem('PLUGIN_AUDIOMUSEAI_MENU_CHAT',
 		'PLUGIN_AUDIOMUSEAI_PROMPT_CHAT',
 		['audiomuseai', 'chat_playlist'], 'prompt');
+	# Lyrics-text search — matches the user's phrase against the
+	# AudioMuse lyrics voyager index (e5-base-v2 embeddings). Distinct
+	# from CLAP (which matches audio embeddings) and chat (LLM→SQL).
+	push @menu, _textInputItem('PLUGIN_AUDIOMUSEAI_MENU_LYRICS',
+		'PLUGIN_AUDIOMUSEAI_PROMPT_LYRICS',
+		['audiomuseai', 'lyrics_search'], 'prompt');
 	# findpath_search returns a track-pick menu (not a notification),
 	# so it should NOT have nextWindow:refresh — that would close the
 	# pushed picker.
@@ -989,9 +1007,13 @@ sub _similarArtist {
 			for my $a (@arts) {
 				my $name = _safeText($a->{artist} // $a->{name} // '');
 				next unless length $name;
+				# Score field renamed `distance` → `divergence` upstream
+				# (artist_similarity blueprint). Keep the old name as
+				# fallback for any older AudioMuse server.
+				my $score = $a->{divergence} // $a->{distance};
 				my $sub = '';
-				if (defined $a->{distance}) {
-					$sub = sprintf(' (sim %.2f)', $a->{distance});
+				if (defined $score) {
+					$sub = sprintf(' (sim %.2f)', $score);
 				}
 				push @items, {
 					text    => $name . $sub,
@@ -1118,6 +1140,46 @@ sub _chatPlaylist {
 				if $prefs->get('auto_save_instant');
 		},
 		sub { _notifyError($request, shift) },
+	);
+}
+
+sub _lyricsSearch {
+	my $request = shift;
+	my $client  = $request->client or return $request->setStatusBadParams;
+	my $prompt  = _trim($request->getParam('prompt') // '');
+	return _notify($request, string('PLUGIN_AUDIOMUSEAI_EMPTY_INPUT')) unless length $prompt;
+	# Server enforces a 3-char minimum and rejects shorter queries with
+	# 400. Reject early so users see the real reason rather than a generic
+	# error.
+	if (length $prompt < 3) {
+		return _notify($request, string('PLUGIN_AUDIOMUSEAI_LYRICS_TOO_SHORT'));
+	}
+	_recordRecentPrompt($client, $prompt);
+	$prefs->client($client)->set('last_instant_prompt', $prompt);
+	$log->info('lyrics search: ' . _logSafe($prompt));
+	$request->setStatusProcessing;
+	Plugins::AudioMuseAI::API::lyrics_search(
+		$prompt, _count($client),
+		sub {
+			_queueResults($request, $client, shift, 1);
+			# Auto-save reuses the Instant Playlist toggle — both are
+			# user-typed prompt → queue and the user's intent is
+			# the same.
+			_maybeAutoSave($client, 'instant', $prompt) if $prefs->get('auto_save_instant');
+		},
+		sub {
+			# The lyrics endpoint returns HTTP 404 with {"error":"No
+			# lyrics found."} when nothing matches. _notifyError would
+			# read that as "track not indexed" — wrong context for a
+			# free-text lyric search. Surface a query-specific message
+			# instead, fall back to the generic error path otherwise.
+			my $err = shift // '';
+			if ($err =~ /no lyrics found/i) {
+				return _notify($request,
+					string('PLUGIN_AUDIOMUSEAI_LYRICS_NO_MATCH'));
+			}
+			_notifyError($request, $err);
+		},
 	);
 }
 
@@ -1915,15 +1977,35 @@ sub _fmtDuration {
 	return sprintf('%ds', $s);
 }
 
+# Unwrap a track list from any of the response shapes AudioMuse uses:
+#   - bare array (similar_tracks, similar_artists, search_tracks,
+#     sonic_fingerprint)
+#   - { results: [...], ... }   (clap_search, lyrics_search, alchemy)
+#   - { path: [...], total_distance } (find_path)
+#   - { query_results: [...] } as a courtesy for any future caller that
+#     forwards the chat-playlist response straight through.
+# Returns an ARRAYREF (possibly empty) so callers can iterate without
+# checking ref() each time.
+sub _extractTracks {
+	my $data = shift;
+	return $data    if ref($data) eq 'ARRAY';
+	return []       unless ref($data) eq 'HASH';
+	for my $k (qw(results path query_results)) {
+		return $data->{$k} if ref($data->{$k}) eq 'ARRAY';
+	}
+	return [];
+}
+
 sub _queueResults {
 	my ($request, $client, $data, $loadFresh) = @_;
-	unless (ref($data) eq 'ARRAY' && @$data) {
+	my $tracks = _extractTracks($data);
+	unless (ref($tracks) eq 'ARRAY' && @$tracks) {
 		return _notify($request, string('PLUGIN_AUDIOMUSEAI_NO_RESULTS'));
 	}
 	# Filter: defined, non-empty, and only digits (Lyrion track IDs are
 	# always integers; anything else would crash playlistcontrol).
 	my @ids = grep { defined && /\A\d+\z/ }
-		map { $_->{item_id} // $_->{id} } @$data;
+		map { $_->{item_id} // $_->{id} } @$tracks;
 	unless (@ids) {
 		return _notify($request, string('PLUGIN_AUDIOMUSEAI_NO_RESULTS'));
 	}
@@ -1956,10 +2038,10 @@ sub _onNewSong {
 	$log->info("DSTM auto-extend mode=$mode remaining=$remaining client=" . $client->id);
 
 	my $cb_ok = sub {
-		my $data = shift;
-		return unless ref($data) eq 'ARRAY' && @$data;
+		my $tracks = _extractTracks(shift);
+		return unless ref($tracks) eq 'ARRAY' && @$tracks;
 		my @ids = grep { defined && /\A\d+\z/ }
-			map { $_->{item_id} // $_->{id} } @$data;
+			map { $_->{item_id} // $_->{id} } @$tracks;
 		return unless @ids;
 		Slim::Control::Request::executeRequest(
 			$client,

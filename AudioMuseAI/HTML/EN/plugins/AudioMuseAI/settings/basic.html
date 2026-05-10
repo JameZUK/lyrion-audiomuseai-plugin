@@ -195,7 +195,13 @@
 	// ----- Server-status panel -----
 	var statusEl = document.getElementById('amServerStatus');
 	if (statusEl) {
-		var msgLoading     = statusEl.getAttribute('data-msg-loading')     || 'Loading…';
+		// JS string literals use \uXXXX escapes for any non-ASCII char.
+		// Lyrion's settings page is sometimes served without an explicit
+		// charset, so a literal multi-byte UTF-8 sequence (e.g. ·, …, →)
+		// gets rendered as Latin-1 mojibake (e.g. "Â·"). Escapes sidestep
+		// the source-file encoding and produce the correct code point at
+		// JS parse time.
+		var msgLoading     = statusEl.getAttribute('data-msg-loading')     || 'Loading\u2026';
 		var msgUnreachable = statusEl.getAttribute('data-msg-unreachable') || 'Not reachable:';
 		var msgIdle        = statusEl.getAttribute('data-msg-idle')        || 'Server is idle (no active task).';
 		var lblState       = statusEl.getAttribute('data-lbl-state')       || 'State';
@@ -217,7 +223,7 @@
 				// Pull library coverage in parallel; cached server-side
 				// (30s) so this is cheap.
 				rpc(['audiomuseai', 'library_summary'], renderLibrary,
-					function() { /* swallow — coverage is informational */ });
+					function() { /* swallow - coverage is informational */ });
 			}, function(httpErr) {
 				renderUnreachable('Lyrion JSON-RPC: ' + httpErr);
 			});
@@ -253,7 +259,7 @@
 				var d = document.createElement('div');
 				d.className = 'am-ok';
 				d.style.marginTop = '0.4em';
-				d.textContent = '✓ ' + msgIdle;
+				d.textContent = '\u2713 ' + msgIdle;
 				statusEl.appendChild(d);
 				return;
 			}
@@ -265,7 +271,7 @@
 				statusEl.appendChild(em);
 			}
 
-			var stateText = r.status + (r.task_type ? ' · ' + r.task_type : '');
+			var stateText = r.status + (r.task_type ? ' \u00B7 ' + r.task_type : '');
 			appendRow(lblState, stateText);
 
 			if (r.progress !== '' && r.progress != null) {
@@ -277,7 +283,7 @@
 			if (r.albums_skipped !== '' || r.albums_to_process !== '') {
 				appendRow(lblAlbums,
 					'skipped ' + (r.albums_skipped || '0') +
-					' · to process ' + (r.albums_to_process || '0'));
+					' \u00B7 to process ' + (r.albums_to_process || '0'));
 			}
 			if (r.task_id) {
 				appendRow(lblTaskId, r.task_id, true);

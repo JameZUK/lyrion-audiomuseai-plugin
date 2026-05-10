@@ -135,6 +135,18 @@ PLUGIN_AUDIOMUSEAI_MENU_CHAT
 PLUGIN_AUDIOMUSEAI_PROMPT_CHAT
 	EN	Describe the playlist in plain language — the LLM will translate it to a query.
 
+PLUGIN_AUDIOMUSEAI_MENU_LYRICS
+	EN	Find tracks by lyric phrase (text — needs typing)...
+
+PLUGIN_AUDIOMUSEAI_PROMPT_LYRICS
+	EN	Describe the lyric or theme (e.g. "songs about heartbreak in the rain")
+
+PLUGIN_AUDIOMUSEAI_LYRICS_TOO_SHORT
+	EN	Lyric query too short — type at least 3 characters.
+
+PLUGIN_AUDIOMUSEAI_LYRICS_NO_MATCH
+	EN	No tracks matched that lyric phrase. Try a different wording or theme.
+
 PLUGIN_AUDIOMUSEAI_CHAT_NO_PROVIDER
 	EN	No AI provider configured on the AudioMuse-AI server. Set AI_MODEL_PROVIDER (and the matching API key/model) in the AudioMuse-AI web UI under Administration.
 
