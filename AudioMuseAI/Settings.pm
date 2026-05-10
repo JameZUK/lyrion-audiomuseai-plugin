@@ -95,6 +95,10 @@ sub handler {
 
 	$params->{'test_result'} = $prefs->get('last_test_result') // '';
 
+	# Surfaced at the bottom of the page so users can verify which build
+	# is actually loaded without bouncing to the extension manager.
+	$params->{'plugin_version'} = Plugins::AudioMuseAI::Plugin::VERSION();
+
 	return $class->SUPER::handler($client, $params);
 }
 
