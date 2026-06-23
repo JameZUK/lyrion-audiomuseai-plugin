@@ -68,7 +68,10 @@ path, ver, sha = sys.argv[1:]
 text = open(path).read()
 text = re.sub(r'(<plugin name="AudioMuseAI" version=")[^"]+(")',
               rf'\g<1>{ver}\g<2>', text)
-text = re.sub(r'(releases/download/v)[^/]+(/AudioMuseAI-v)[^.]+(\.zip)',
+# [^/]+ (not [^.]+) for the filename version — dotted versions like 0.3.1
+# contain '.', so [^.]+ would stop at the first dot and the substitution
+# would silently no-op, leaving a stale download URL.
+text = re.sub(r'(releases/download/v)[^/]+(/AudioMuseAI-v)[^/]+(\.zip)',
               rf'\g<1>{ver}\g<2>{ver}\g<3>', text)
 text = re.sub(r'(<sha>)[^<]+(</sha>)',
               rf'\g<1>{sha}\g<2>', text)
