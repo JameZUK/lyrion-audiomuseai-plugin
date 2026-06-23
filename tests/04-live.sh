@@ -49,23 +49,31 @@ fail=0
 assert_keys() {
     local desc=$1 json=$2
     shift 2
-    local missing
-    missing=$(python3 -c "
+    # Feed the body to python via stdin — NOT interpolated into the
+    # source — so quotes/backslashes in real payloads can't break the
+    # script (or, worse, make json.loads raise and the check silently
+    # pass on empty output). Success prints the sentinel 'ok'; anything
+    # else (bad-json / not-a-hash / missing keys / a python crash that
+    # prints nothing) is a FAIL.
+    local result
+    result=$(printf '%s' "$json" | python3 -c "
 import json, sys
-d = json.loads('''$json''')
+try:
+    d = json.load(sys.stdin)
+except Exception:
+    print('bad-json'); sys.exit(0)
 want = sys.argv[1:]
 if not isinstance(d, dict):
-    print('not-a-hash')
-    sys.exit(0)
+    print('not-a-hash'); sys.exit(0)
 missing = [k for k in want if k not in d]
-print(','.join(missing))
+print(','.join(missing) if missing else 'ok')
 " "$@")
-    if [[ -z "$missing" ]]; then
+    if [[ "$result" == "ok" ]]; then
         echo "PASS  $desc"
         pass=$((pass + 1))
     else
         echo "FAIL  $desc"
-        echo "      missing key(s): $missing"
+        echo "      problem: ${result:-python-error}"
         echo "      body: ${json:0:200}"
         fail=$((fail + 1))
     fi
@@ -76,17 +84,20 @@ print(','.join(missing))
 assert_array_keys() {
     local desc=$1 json=$2
     shift 2
+    # Same stdin-not-source-interpolation rule as assert_keys: a body
+    # that won't parse must FAIL, never silently pass.
     local result
-    result=$(python3 -c "
+    result=$(printf '%s' "$json" | python3 -c "
 import json, sys
-d = json.loads('''$json''')
+try:
+    d = json.load(sys.stdin)
+except Exception:
+    print('bad-json'); sys.exit(0)
 want = sys.argv[1:]
 if not isinstance(d, list):
-    print('not-an-array')
-    sys.exit(0)
+    print('not-an-array'); sys.exit(0)
 if not d:
-    print('empty-array')
-    sys.exit(0)
+    print('empty-array'); sys.exit(0)
 first = d[0]
 missing = [k for k in want if k not in first]
 print(','.join(missing) if missing else 'ok')
@@ -96,14 +107,14 @@ print(','.join(missing) if missing else 'ok')
         echo "PASS  $desc"
         pass=$((pass + 1))
         ;;
-      not-an-array|empty-array)
+      not-an-array|empty-array|bad-json)
         echo "FAIL  $desc ($result)"
         echo "      body: ${json:0:200}"
         fail=$((fail + 1))
         ;;
       *)
         echo "FAIL  $desc"
-        echo "      missing key(s) on first item: $result"
+        echo "      missing key(s) on first item: ${result:-python-error}"
         echo "      body: ${json:0:200}"
         fail=$((fail + 1))
         ;;

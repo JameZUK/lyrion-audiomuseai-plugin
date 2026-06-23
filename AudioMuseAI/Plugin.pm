@@ -1387,6 +1387,7 @@ sub _findPathExecute {
 sub _dynamicSimilar {
 	my $request = shift;
 	my $client  = $request->client or return $request->setStatusBadParams;
+	_ensureDstmEnabled();
 	$prefs->client($client)->set('dstm_active', 'similar');
 	$log->info("DSTM mode 'similar' active for " . $client->id);
 	_similarNow($request);
@@ -1395,9 +1396,22 @@ sub _dynamicSimilar {
 sub _dynamicFingerprint {
 	my $request = shift;
 	my $client  = $request->client or return $request->setStatusBadParams;
+	_ensureDstmEnabled();
 	$prefs->client($client)->set('dstm_active', 'fingerprint');
 	$log->info("DSTM mode 'fingerprint' active for " . $client->id);
 	_sonicFingerprint($request);
+}
+
+# Selecting a dynamic mode from the player menu is an explicit opt-in to
+# auto-extend. The per-song hook (_onNewSong) gates on the GLOBAL
+# dstm_enabled pref, so if that's still off the chosen mode would queue
+# once and then silently never extend. Flip the gate on the first time a
+# user starts a mode; the Settings checkbox still lets them disable the
+# whole feature, and _dynamicStop clears the per-player mode regardless.
+sub _ensureDstmEnabled {
+	return if $prefs->get('dstm_enabled');
+	$prefs->set('dstm_enabled', 1);
+	$log->info('DSTM auto-extend globally enabled (was off) by menu selection');
 }
 
 sub _dynamicStop {
