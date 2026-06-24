@@ -286,6 +286,14 @@ PLUGIN_AUDIOMUSEAI_DYNAMIC_FINGERPRINT
 PLUGIN_AUDIOMUSEAI_DYNAMIC_STOP
 	EN	Stop auto-extend (this player)
 
+# --- Native "Don't Stop The Music" provider labels (shown in the
+#     per-player Player Settings -> Audio -> Don't Stop The Music dropdown) ---
+PLUGIN_AUDIOMUSEAI_DSTM_SIMILAR
+	EN	AudioMuse-AI: Similar to recent tracks
+
+PLUGIN_AUDIOMUSEAI_DSTM_FINGERPRINT
+	EN	AudioMuse-AI: Sonic fingerprint
+
 # --- Server Status / Admin submenu ---
 PLUGIN_AUDIOMUSEAI_STATUS_ACTIVE
 	EN	Show active tasks

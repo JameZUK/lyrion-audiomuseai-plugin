@@ -24,7 +24,7 @@ use Slim::Menu::TrackInfo;
 use Slim::Menu::AlbumInfo;
 
 use constant {
-	VERSION             => '0.3.2',
+	VERSION             => '0.4.0',
 	HEALTHCHECK_DELAY   => 5,
 	# Cap search-result menus to keep the UI navigable on hardware
 	# controllers; AudioMuse can return hundreds of tracks for prolific
@@ -259,6 +259,24 @@ sub initPlugin {
 			func  => \&_albumInfoAlchemy,
 		),
 	);
+
+	# --- Native "Don't Stop The Music" providers (issue #2) ----------------
+	# Surface AudioMuse-AI in LMS's per-player "Don't Stop The Music"
+	# dropdown (Player Settings -> Audio), alongside MusicIP / SugarCube.
+	# Registered at runtime and guarded so the plugin still loads on LMS
+	# builds without DSTM. Coexists with the menu-based dynamic modes:
+	# _onNewSong stands down when one of our providers is a player's active
+	# DSTM handler, so the queue isn't topped up twice.
+	if ( eval { require Slim::Plugin::DontStopTheMusic::Plugin; 1 } ) {
+		Slim::Plugin::DontStopTheMusic::Plugin->registerHandler(
+			'PLUGIN_AUDIOMUSEAI_DSTM_SIMILAR',     \&_dstmMixSimilar);
+		Slim::Plugin::DontStopTheMusic::Plugin->registerHandler(
+			'PLUGIN_AUDIOMUSEAI_DSTM_FINGERPRINT', \&_dstmMixFingerprint);
+		$log->info("registered Don't Stop The Music providers");
+	}
+	else {
+		$log->info('DontStopTheMusic not available; native providers skipped');
+	}
 
 	$class->SUPER::initPlugin(@_);
 	$log->info('AudioMuse-AI plugin v' . VERSION . ' initialised');
@@ -1425,6 +1443,86 @@ sub _dynamicStop {
 	_notify($request, string('PLUGIN_AUDIOMUSEAI_DSTM_STOPPED'));
 }
 
+# ----- Native Don't Stop The Music providers --------------------------------
+# LMS calls these when a player whose "Don't Stop The Music" handler is set
+# to one of ours runs low on queued tracks. Each handler must call
+# $cb->($client, \@trackUrls). We reuse the same AudioMuse endpoints as the
+# menu-based modes and map the returned IDs to local LMS track URLs (DSTM
+# consumes URLs, not IDs).
+
+sub _dstmMixSimilar {
+	my ($client, $cb) = @_;
+	return $cb->($client, []) unless $client && $cb;
+	my $seed = _dstmSeedTrackId($client);
+	unless ($seed) {
+		$log->info('DSTM similar: no seed track in queue');
+		return $cb->($client, []);
+	}
+	$log->info("DSTM similar mix seeded from track $seed on " . $client->id);
+	Plugins::AudioMuseAI::API::similar_tracks(
+		$seed, _count($client),
+		sub { $cb->($client, _dstmTrackUrls(shift)); },
+		sub {
+			$log->warn('DSTM similar mix failed: ' . (shift // 'unknown'));
+			$cb->($client, []);
+		},
+	);
+}
+
+sub _dstmMixFingerprint {
+	my ($client, $cb) = @_;
+	return $cb->($client, []) unless $client && $cb;
+	$log->info('DSTM fingerprint mix on ' . $client->id);
+	Plugins::AudioMuseAI::API::sonic_fingerprint(
+		_count($client),
+		sub { $cb->($client, _dstmTrackUrls(shift)); },
+		sub {
+			$log->warn('DSTM fingerprint mix failed: ' . (shift // 'unknown'));
+			$cb->($client, []);
+		},
+	);
+}
+
+# Seed from the last track in the player's queue — the trailing context
+# DSTM is trying to continue from. Returns a track ID or undef.
+sub _dstmSeedTrackId {
+	my $client = shift or return undef;
+	my $count = Slim::Player::Playlist::count($client) or return undef;
+	my $track = Slim::Player::Playlist::track($client, $count - 1);
+	return undef unless $track && eval { $track->id };
+	return $track->id;
+}
+
+# Map an AudioMuse track-list response to local LMS track URLs (DSTM wants
+# URLs). Skips anything not resolvable in the local library.
+sub _dstmTrackUrls {
+	my $data = shift;
+	my $tracks = _extractTracks($data);
+	my @urls;
+	for my $t (@$tracks) {
+		my $id = $t->{item_id} // $t->{id};
+		next unless defined $id && $id =~ /\A\d+\z/;
+		my $obj = eval { Slim::Schema->find('Track', $id) } or next;
+		my $url = eval { $obj->url };
+		push @urls, $url if defined $url && length $url;
+	}
+	$log->info('DSTM mix returning ' . scalar(@urls) . ' track URL(s)');
+	return \@urls;
+}
+
+# True when the player's native "Don't Stop The Music" handler is one of
+# ours — meaning native DSTM will do the extending and the menu-based
+# _onNewSong path should stand down to avoid double-filling the queue.
+sub _nativeDstmIsOurs {
+	my $client = shift or return 0;
+	my $prov = eval {
+		preferences('plugin.dontstopthemusic')->client($client)->get('provider');
+	};
+	return 0 unless defined $prov && length $prov;
+	return $prov eq 'PLUGIN_AUDIOMUSEAI_DSTM_SIMILAR'
+		|| $prov eq 'PLUGIN_AUDIOMUSEAI_DSTM_FINGERPRINT';
+}
+
 # ----- Server status / admin ------------------------------------------------
 
 sub _statusActive {
@@ -2057,6 +2155,9 @@ sub _onNewSong {
 
 	my $mode = $prefs->client($client)->get('dstm_active') or return;
 	return unless $prefs->get('dstm_enabled');
+	# If native DSTM is set to one of our providers for this player, let it
+	# do the extending — don't also fire the menu-based mode (issue #2).
+	return if _nativeDstmIsOurs($client);
 
 	my $remaining = Slim::Player::Playlist::count($client)
 		- Slim::Player::Source::streamingSongIndex($client) - 1;
