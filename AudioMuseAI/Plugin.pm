@@ -24,7 +24,7 @@ use Slim::Menu::TrackInfo;
 use Slim::Menu::AlbumInfo;
 
 use constant {
-	VERSION             => '0.3.1',
+	VERSION             => '0.3.2',
 	HEALTHCHECK_DELAY   => 5,
 	# Cap search-result menus to keep the UI navigable on hardware
 	# controllers; AudioMuse can return hundreds of tracks for prolific
@@ -568,7 +568,10 @@ sub _menuDynamic {
 
 	# Prefix the currently-active mode with a tick so the user can see
 	# what's running and find 'Stop auto-extend' easily. Per-player.
-	my $tick = '✓ ';
+	# ASCII marker — non-ASCII glyphs reach some controllers as Latin-1
+	# mojibake over JSON-RPC (this file has no `use utf8`); keep emitted
+	# strings 7-bit. See issue #1 (the em-dash showed up as 'â').
+	my $tick = '* ';
 	my $sim_label = string('PLUGIN_AUDIOMUSEAI_DYNAMIC_SIMILAR');
 	my $fp_label  = string('PLUGIN_AUDIOMUSEAI_DYNAMIC_FINGERPRINT');
 	$sim_label = $tick . $sim_label if $active eq 'similar';
@@ -1226,7 +1229,7 @@ sub _alchemyAddTo {
 	my $list = _alchemyList($client, $key);
 	push @$list, $tid unless grep { $_ eq $tid } @$list;
 	$prefs->client($client)->set($key, $list);
-	_notify($request, sprintf('ADDED to %s: %s — %s (%d in list)',
+	_notify($request, sprintf('ADDED to %s: %s - %s (%d in list)',
 		uc($bucket),
 		$song->title      // '?',
 		$song->artistName // '?',
@@ -1459,7 +1462,7 @@ sub _statusFormat {
 	my @hdr;
 	push @hdr, "status: $data->{status}"  if defined $data->{status};
 	push @hdr, "type: $data->{task_type}" if defined $data->{task_type};
-	push @lines, join(' · ', @hdr) if @hdr;
+	push @lines, join(' / ', @hdr) if @hdr;
 
 	push @lines, "progress: $data->{progress}%"             if defined $data->{progress};
 	push @lines, 'running: ' . _fmtDuration($data->{running_time_seconds})
@@ -1877,7 +1880,7 @@ sub _tracksAsPickMenu {
 	}
 	if (@$tracks > $cap) {
 		push @items, {
-			text => sprintf('… (%d more not shown)', @$tracks - $cap),
+			text => sprintf('... (%d more not shown)', @$tracks - $cap),
 		};
 	}
 	return \@items;
@@ -1906,14 +1909,24 @@ sub _emit {
 
 sub _notify {
 	my ($request, $msg) = @_;
-	_emit($request, [{ text => $msg // '' }]);
+	# nextWindow makes Material's canClickItem() return true for this lone
+	# item, which stops Material wrapping a single text item's title in a
+	# <div style="margin-top:16px;...">…</div> that its text-input result
+	# view then renders literally (issue #1 — only the text-entry features
+	# hit it). Harmless on every controller: a notification is rarely
+	# tapped and 'refresh' is a no-op in that context.
+	_emit($request, [{ text => $msg // '', nextWindow => 'refresh' }]);
 }
 
 sub _notifyLines {
 	my ($request, $lines) = @_;
 	$lines ||= [];
 	$lines = ['No status returned.'] unless @$lines;
-	_emit($request, [ map { { text => "$_" } } @$lines ]);
+	my @items = map { { text => "$_" } } @$lines;
+	# A single-line status hits the same Material single-text-item <div>
+	# wrap as _notify; give it a nextWindow so canClickItem() is true.
+	$items[0]{nextWindow} = 'refresh' if @items == 1;
+	_emit($request, \@items);
 }
 
 sub _notifyError {
@@ -1964,7 +1977,7 @@ sub _notifyErrorWithStatus {
 				my @hdr;
 				push @hdr, "state: $data->{status}"  if defined $data->{status};
 				push @hdr, "type: $data->{task_type}" if defined $data->{task_type};
-				push @lines, join(' · ', @hdr) if @hdr;
+				push @lines, join(' / ', @hdr) if @hdr;
 				push @lines, "progress: $data->{progress}%"
 					if defined $data->{progress} && $data->{progress} ne '';
 				push @lines, 'running: ' . _fmtDuration($data->{running_time_seconds})
@@ -2032,7 +2045,7 @@ sub _queueResults {
 	);
 	# Compact summary: "Queued 25 tracks (replace queue)" / "...append".
 	my $verb = $loadFresh ? 'replaced queue' : 'appended to queue';
-	_notify($request, sprintf('%s — %d tracks %s.',
+	_notify($request, sprintf('%s - %d tracks %s.',
 		string('PLUGIN_AUDIOMUSEAI_QUEUED'), scalar @ids, $verb));
 }
 
