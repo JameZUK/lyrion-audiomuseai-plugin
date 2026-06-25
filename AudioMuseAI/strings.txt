@@ -198,6 +198,15 @@ PLUGIN_AUDIOMUSEAI_HINT_PICK_FOR_SONG
 PLUGIN_AUDIOMUSEAI_HINT_PICK_FOR_ARTIST
 	EN	→ Pick an artist below to find similar artists:
 
+PLUGIN_AUDIOMUSEAI_SEARCH_ARTIST
+	EN	Search for an artist...
+
+PLUGIN_AUDIOMUSEAI_SEARCH_ARTIST_FOR_SONG
+	EN	Search for an artist (then pick a song)...
+
+PLUGIN_AUDIOMUSEAI_SEARCH_ARTIST_PROMPT
+	EN	Type part of an artist name
+
 PLUGIN_AUDIOMUSEAI_USE_AS_TYPED
 	EN	Use '%s' (typed)
 

@@ -24,7 +24,7 @@ use Slim::Menu::TrackInfo;
 use Slim::Menu::AlbumInfo;
 
 use constant {
-	VERSION             => '0.4.0',
+	VERSION             => '0.4.1',
 	HEALTHCHECK_DELAY   => 5,
 	# Cap search-result menus to keep the UI navigable on hardware
 	# controllers; AudioMuse can return hundreds of tracks for prolific
@@ -653,14 +653,28 @@ sub _browseArtists {
 
 	my $page = BROWSE_PAGE_SIZE;
 	my @items;
-	my $total = 0;
+	my $total   = 0;
+	my $fetched = 0;   # artists actually added this page (drives pagination)
 
-	# Non-actionable header item — only on the first page — explains the
-	# drill-down flow to users who tap 'Similar to song' / 'Similar to
-	# artist' expecting an immediate result list. Items without an
-	# 'actions' block render as a non-tappable label (or grayed-out
-	# disabled item, depending on controller).
+	# First page only: a search box + the explanatory header.
 	if ($start == 0) {
+		# Search box (discussion #686 — wirrunna). Controllers that render
+		# the Jive 'input' field (Material, default web UI) show a search
+		# field, which beats paging the whole library alphabetically.
+		# Squeezer skips 'input' items, so it falls through to the
+		# alphabetical paging below — both audiences are served.
+		push @items, _textInputItem(
+			$target eq 'similar_song_search'
+				? 'PLUGIN_AUDIOMUSEAI_SEARCH_ARTIST_FOR_SONG'
+				: 'PLUGIN_AUDIOMUSEAI_SEARCH_ARTIST',
+			'PLUGIN_AUDIOMUSEAI_SEARCH_ARTIST_PROMPT',
+			['audiomuseai', 'filter_artists'], 'query',
+			{ push => 1, params => { target => $target } });
+
+		# Non-actionable header — explains the drill-down flow to users who
+		# tap 'Similar to song' / 'Similar to artist' expecting an immediate
+		# result list. Items without an 'actions' block render as a
+		# non-tappable label (or grayed-out item, depending on controller).
 		my $hint_key = $target eq 'similar_song_search'
 			? 'PLUGIN_AUDIOMUSEAI_HINT_PICK_FOR_SONG'
 			: 'PLUGIN_AUDIOMUSEAI_HINT_PICK_FOR_ARTIST';
@@ -678,28 +692,31 @@ sub _browseArtists {
 			next unless defined $name && length $name;
 			push @items, _libraryArtistItem($name,
 				['audiomuseai', $target]);
+			$fetched++;
 		}
 	};
 	$log->warn("browse_artists failed at start=$start: $@") if $@;
 
-	# 'More...' tail item if there are further pages. Static so it
-	# works even in controllers that don't honour server-side
+	# 'More...' tail item if there are further pages. Advance by the number
+	# of ARTISTS shown ($start + $fetched), NOT scalar(@items) — the search
+	# box and header would otherwise skew the offset and skip artists.
+	# Static so it works even on controllers that ignore server-side
 	# pagination metadata.
-	if ($total > $start + scalar(@items)) {
-		my $next = $start + scalar(@items);
+	my $shown = $start + $fetched;
+	if ($total > $shown) {
 		push @items, {
 			text    => string('PLUGIN_AUDIOMUSEAI_MORE'),
 			actions => {
 				go => {
 					cmd    => ['audiomuseai', 'browse_artists'],
 					player => 0,
-					params => { target => $target, start => $next },
+					params => { target => $target, start => $shown },
 				},
 			},
 		};
 	}
 
-	if (!@items) {
+	if (!$fetched) {
 		push @items, { text => string('PLUGIN_AUDIOMUSEAI_NO_RESULTS') };
 	}
 
@@ -1920,9 +1937,15 @@ sub _submenuItem {
 
 sub _textInputItem {
 	my ($titleKey, $promptKey, $cmd, $paramName, $opts) = @_;
-	# $opts->{push} = 1  -> action returns a new menu (no nextWindow)
-	#                       Default is action returns a notification.
+	# $opts->{push}   = 1  -> action returns a new menu (no nextWindow)
+	#                         Default is action returns a notification.
+	# $opts->{params}      -> extra static params merged into the action
+	#                         alongside the typed value (e.g. a `target`).
 	$opts ||= {};
+	my %params = ($paramName => '__TAGGEDINPUT__');
+	if (ref $opts->{params} eq 'HASH') {
+		%params = (%{ $opts->{params} }, %params);
+	}
 	my $item = {
 		text  => string($titleKey),
 		input => {
@@ -1935,7 +1958,7 @@ sub _textInputItem {
 			go => {
 				cmd    => $cmd,
 				player => 0,
-				params => { $paramName => '__TAGGEDINPUT__' },
+				params => \%params,
 			},
 		},
 	};
