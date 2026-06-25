@@ -35,7 +35,7 @@ It also adds **context-menu items** to Lyrion's normal browse (*AudioMuse: simil
 
 ## Two shortcuts worth knowing
 
-- **Context menu** — browse to any artist, track, or album normally and use the context menu (right-click in the web UI / long-press in Material / 3-dot in iPeng) → **AudioMuse: similar…**. You get Lyrion's native filtering and letter-jump for free. This is the recommended path on Squeezer.
+- **Context menu** — browse to any artist, track, or album normally and use its context menu (right-click in the web UI / long-press or **⋮** in Material / 3-dot in iPeng) → **AudioMuse: similar…**. You get Lyrion's native filtering and letter-jump for free; recommended on Squeezer. *(In Material the AudioMuse items are under **More** — see [docs/USAGE.md](docs/USAGE.md#context-menu).)*
 - **Auto-extend** — pick an **AudioMuse-AI** entry under Player Settings → Audio → *Don't Stop The Music* (or start a **Dynamic Playlists** mode), and the queue refills itself with matching tracks as it runs low.
 
 ## Documentation

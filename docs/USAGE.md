@@ -59,11 +59,13 @@ These render but **can't be activated on Squeezer**, which doesn't draw Jive `in
 
 ### Context menu
 
-The plugin registers info-providers for artists, tracks, and albums. **Browse normally** (My Music → Artists, type to filter, tap an artist) and the context menu — right-click (web UI), long-press (Material), 3-dot (iPeng) — includes:
+The plugin registers info-providers for artists, tracks, and albums. **Browse normally** (My Music → Artists, type to filter, tap an artist) and open the item's context menu — right-click (web UI), long-press or the **⋮** icon (Material), 3-dot (iPeng). It includes:
 
 - **AudioMuse: similar artists** — on any artist
 - **AudioMuse: similar tracks** — on any track (in My Music, in the queue, anywhere)
 - **AudioMuse: alchemy from this album** — on any album (seeds alchemy with all the album's tracks)
+
+> **Material users — look under "More".** Material's context menu shows only the common actions (Play, Add to queue, Favourites…) at the top, then a **More** entry. The AudioMuse items are inside **More**, not on the first screen. So the path is: long-press (or **⋮**) → **More** → *AudioMuse: …*. (On the default web UI and iPeng they appear directly in the context menu.)
 
 This gives you Lyrion's native filter / letter-jump for free, and is the **recommended path on Squeezer** (which can filter the standard browse but can't render text-input fields inside the plugin menu).
 

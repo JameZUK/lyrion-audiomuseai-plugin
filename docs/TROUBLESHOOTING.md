@@ -4,6 +4,8 @@
 
 **"Service not ready" on the similarity items** — your AudioMuse-AI instance hasn't finished analysis *and* run clustering at least once. Check **Server Status → Show active tasks** for progress, and trigger analysis / clustering from the same submenu if needed. (Sonic Fingerprint, Instant Playlist, and Browse-by-Mood work earlier — they use CLAP embeddings rather than the similarity index.)
 
+**Can't find the "AudioMuse: similar…" context-menu items in Material** — they're there, just under **More**. Material's long-press / **⋮** menu lists the common actions first (Play, Add to queue, Favourites…) and tucks plugin items into a **More** submenu. Path: long-press (or **⋮**) → **More** → *AudioMuse: …*. On the default web UI and iPeng they appear directly in the context menu.
+
 **Test connection fails** — check the URL has a scheme, the token is correct, and Lyrion can reach the host. From the Lyrion box: `curl <url>/api/active_tasks`.
 
 **A menu flashes and disappears (Squeezer)** — should be fixed in recent versions. If it recurs, check `server.log` for `plugin.audiomuseai` entries to see what the dispatcher returned.
