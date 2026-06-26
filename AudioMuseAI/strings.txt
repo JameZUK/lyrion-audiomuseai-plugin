@@ -120,6 +120,9 @@ PLUGIN_AUDIOMUSEAI_PLUGIN_VERSION
 PLUGIN_AUDIOMUSEAI_MENU_SIMILAR_NOW
 	EN	Similar to current track
 
+PLUGIN_AUDIOMUSEAI_MENU_SEMGROVE_NOW
+	EN	Similar (sound + lyrics) to current track
+
 PLUGIN_AUDIOMUSEAI_MENU_SIMILAR_SONG
 	EN	Similar to a song (pick artist, then track)...
 
@@ -161,6 +164,21 @@ PLUGIN_AUDIOMUSEAI_MENU_TOP_QUERIES
 
 PLUGIN_AUDIOMUSEAI_MENU_ALCHEMY
 	EN	Song Alchemy
+
+PLUGIN_AUDIOMUSEAI_MENU_RADIOS
+	EN	AudioMuse Radios
+
+PLUGIN_AUDIOMUSEAI_RADIOS_RUN
+	EN	Run all radios (rebuild playlists)
+
+PLUGIN_AUDIOMUSEAI_RADIOS_HEADER
+	EN	Saved radios:
+
+PLUGIN_AUDIOMUSEAI_RADIOS_NONE
+	EN	No radios defined. Create them in the AudioMuse-AI web UI.
+
+PLUGIN_AUDIOMUSEAI_RADIOS_RUN_OK
+	EN	Built %d playlist(s) from %d radio(s). Find them in Playlists.
 
 PLUGIN_AUDIOMUSEAI_MENU_FINDPATH
 	EN	Build a sonic journey between two songs (text — needs typing)...
@@ -215,6 +233,9 @@ PLUGIN_AUDIOMUSEAI_INFO_SIMILAR_ARTIST
 
 PLUGIN_AUDIOMUSEAI_INFO_SIMILAR_TRACK
 	EN	AudioMuse: similar tracks
+
+PLUGIN_AUDIOMUSEAI_INFO_SEMGROVE_TRACK
+	EN	AudioMuse: similar (sound + lyrics)
 
 PLUGIN_AUDIOMUSEAI_INFO_ALCHEMY_FROM_ALBUM
 	EN	AudioMuse: alchemy from this album

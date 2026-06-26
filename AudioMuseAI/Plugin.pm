@@ -24,7 +24,7 @@ use Slim::Menu::TrackInfo;
 use Slim::Menu::AlbumInfo;
 
 use constant {
-	VERSION             => '0.4.2',
+	VERSION             => '0.5.0',
 	HEALTHCHECK_DELAY   => 5,
 	# Cap search-result menus to keep the UI navigable on hardware
 	# controllers; AudioMuse can return hundreds of tracks for prolific
@@ -129,6 +129,12 @@ sub initPlugin {
 		[1, 1, 1, \&_similarArtist]);
 	Slim::Control::Request::addDispatch(['audiomuseai', 'sonic_fp'],
 		[1, 1, 1, \&_sonicFingerprint]);
+	# SemGrove similarity (merged lyrics+audio index) — current track or a
+	# given track id. Distinct from similar_now/_track (audio only).
+	Slim::Control::Request::addDispatch(['audiomuseai', 'semgrove_now'],
+		[1, 1, 1, \&_semGroveNow]);
+	Slim::Control::Request::addDispatch(['audiomuseai', 'semgrove_track'],
+		[1, 1, 1, \&_semGroveTrack]);
 	Slim::Control::Request::addDispatch(['audiomuseai', 'instant'],
 		[1, 1, 1, \&_instantPlaylist]);
 	Slim::Control::Request::addDispatch(['audiomuseai', 'mood'],
@@ -217,6 +223,14 @@ sub initPlugin {
 	Slim::Control::Request::addDispatch(['audiomuseai', 'chat_playlist'],
 		[1, 1, 1, \&_chatPlaylist]);
 
+	# Alchemy "radios" — user-defined saved stations (anchor + temperature
+	# + n). menu_radios lists them; radios_run asks AudioMuse to (re)build
+	# one Lyrion playlist per enabled radio.
+	Slim::Control::Request::addDispatch(['audiomuseai', 'menu_radios'],
+		[0, 1, 1, \&_menuRadios]);
+	Slim::Control::Request::addDispatch(['audiomuseai', 'radios_run'],
+		[0, 1, 1, \&_radiosRun]);
+
 	# Top-level menu under My Music. The 'icon' field is honoured by
 	# Material, default web UI, iPeng, and Squeezer (where it shows
 	# next to the menu entry under My Music).
@@ -251,6 +265,12 @@ sub initPlugin {
 		audiomuseaiSimilarTrack => (
 			after => 'top',
 			func  => \&_trackInfoSimilar,
+		),
+	);
+	Slim::Menu::TrackInfo->registerInfoProvider(
+		audiomuseaiSemGroveTrack => (
+			after => 'audiomuseaiSimilarTrack',
+			func  => \&_trackInfoSemGrove,
 		),
 	);
 	Slim::Menu::AlbumInfo->registerInfoProvider(
@@ -345,6 +365,26 @@ sub _trackInfoSimilar {
 	};
 }
 
+sub _trackInfoSemGrove {
+	my ($client, $url, $track) = @_;
+	return unless $track;
+	my $tid = ref($track) ? $track->id : "$track";
+	return unless defined $tid && length $tid;
+	return {
+		type => 'redirect',
+		name => string('PLUGIN_AUDIOMUSEAI_INFO_SEMGROVE_TRACK'),
+		jive => {
+			actions => {
+				go => {
+					cmd    => ['audiomuseai', 'semgrove_track'],
+					player => 0,
+					params => { track_id => "$tid" },
+				},
+			},
+		},
+	};
+}
+
 sub _albumInfoAlchemy {
 	my ($client, $url, $album) = @_;
 	return unless $album;
@@ -416,6 +456,10 @@ sub _topMenu {
 	# --- Tier 1: one-tap actions, most common ---
 	push @menu, _actionItem('PLUGIN_AUDIOMUSEAI_MENU_SIMILAR_NOW',
 		['audiomuseai', 'similar_now'], 1);
+	# SemGrove: "similar" using the merged lyrics+audio index — sits next to
+	# Similar to current track as the lyrics-aware alternative.
+	push @menu, _actionItem('PLUGIN_AUDIOMUSEAI_MENU_SEMGROVE_NOW',
+		['audiomuseai', 'semgrove_now'], 1);
 	push @menu, _actionItem('PLUGIN_AUDIOMUSEAI_MENU_FINGERPRINT',
 		['audiomuseai', 'sonic_fp'], 1);
 	push @menu, _submenuItem('PLUGIN_AUDIOMUSEAI_MENU_MOOD',
@@ -440,6 +484,9 @@ sub _topMenu {
 		['audiomuseai', 'menu_dynamic']);
 	push @menu, _submenuItem('PLUGIN_AUDIOMUSEAI_MENU_ALCHEMY',
 		['audiomuseai', 'menu_alchemy']);
+	# Saved alchemy "radios" — list + (re)build their Lyrion playlists.
+	push @menu, _submenuItem('PLUGIN_AUDIOMUSEAI_MENU_RADIOS',
+		['audiomuseai', 'menu_radios']);
 
 	# --- Tier 4: tools (tap-only) ---
 	# Save current queue: auto-named with timestamp, no text input
@@ -933,6 +980,67 @@ sub _cancelActive {
 	);
 }
 
+# ----- Alchemy radios -------------------------------------------------------
+
+# List the user's saved radios, with a "run all" action on top. There's no
+# per-radio "play now" endpoint — running (re)builds one Lyrion playlist per
+# enabled radio — so the radio rows themselves are informational.
+sub _menuRadios {
+	my $request = shift;
+	$request->setStatusProcessing;
+	Plugins::AudioMuseAI::API::list_radios(
+		sub {
+			my $data   = shift;
+			my $radios = (ref($data) eq 'HASH' ? $data->{radios} : undef) || [];
+			$radios = [] unless ref($radios) eq 'ARRAY';
+
+			my @menu = (
+				_actionItem('PLUGIN_AUDIOMUSEAI_RADIOS_RUN',
+					['audiomuseai', 'radios_run']),
+			);
+			if (@$radios) {
+				push @menu, { text => string('PLUGIN_AUDIOMUSEAI_RADIOS_HEADER') };
+				for my $r (@$radios) {
+					next unless ref($r) eq 'HASH';
+					my $name  = _safeText($r->{name} // '?');
+					my $label = '  ' . ($r->{enabled} ? '' : '(off) ') . $name;
+					$label .= sprintf(' (%d tracks)', $r->{n_results})
+						if defined $r->{n_results} && $r->{n_results} ne '';
+					push @menu, { text => $label };
+				}
+			}
+			else {
+				push @menu, { text => string('PLUGIN_AUDIOMUSEAI_RADIOS_NONE') };
+			}
+			_emit($request, \@menu, 'PLUGIN_AUDIOMUSEAI_MENU_RADIOS');
+		},
+		sub { _notifyError($request, shift) },
+	);
+}
+
+sub _radiosRun {
+	my $request = shift;
+	$log->info('radios_run: POST /api/radios/run');
+	$request->setStatusProcessing;
+	Plugins::AudioMuseAI::API::run_radios(
+		sub {
+			my $data    = shift;
+			my $created = (ref($data) eq 'HASH') ? $data->{playlists_created} : undef;
+			my $enabled = (ref($data) eq 'HASH') ? $data->{radios_enabled}    : undef;
+			my $msg     = (ref($data) eq 'HASH') ? $data->{message}           : undef;
+			if (defined $created || defined $enabled) {
+				_notify($request, sprintf(string('PLUGIN_AUDIOMUSEAI_RADIOS_RUN_OK'),
+					int($created // 0), int($enabled // 0)));
+			}
+			else {
+				_notify($request, $msg
+					|| string('PLUGIN_AUDIOMUSEAI_STATUS_TRIGGERED'));
+			}
+		},
+		sub { _notifyError($request, shift) },
+	);
+}
+
 # Read-only library coverage for the settings panel. Cached server-side
 # (30s) to avoid pestering the API on every JS poll.
 sub _librarySummary {
@@ -1095,6 +1203,47 @@ sub _sonicFingerprint {
 		sub { _queueResults($request, $client, shift, 1) },
 		sub { _notifyError($request, shift) },
 	);
+}
+
+# ----- SemGrove (merged lyrics + audio similarity) --------------------------
+
+sub _semGroveNow {
+	my $request = shift;
+	my $client  = $request->client or return $request->setStatusBadParams;
+	my $song    = Slim::Player::Playlist::song($client);
+	unless ($song && $song->id) {
+		return _notify($request, string('PLUGIN_AUDIOMUSEAI_NOTHING_PLAYING'));
+	}
+	$log->info('semgrove_now: track=' . $song->id . ' client=' . $client->id);
+	$request->setStatusProcessing;
+	Plugins::AudioMuseAI::API::sem_grove(
+		$song->id, _count($client),
+		sub { _semGroveQueue($request, $client, shift) },
+		sub { _notifyError($request, shift) },
+	);
+}
+
+sub _semGroveTrack {
+	my $request = shift;
+	my $client  = $request->client or return $request->setStatusBadParams;
+	my $tid     = $request->getParam('track_id');
+	return $request->setStatusBadParams unless defined $tid && length $tid;
+	$request->setStatusProcessing;
+	Plugins::AudioMuseAI::API::sem_grove(
+		$tid, _count($client),
+		sub { _semGroveQueue($request, $client, shift) },
+		sub { _notifyError($request, shift) },
+	);
+}
+
+# SemGrove always returns the seed song first (is_seed=true); drop it so we
+# don't re-queue the track the user seeded from, then hand off to the normal
+# queue path.
+sub _semGroveQueue {
+	my ($request, $client, $data) = @_;
+	my $tracks = _extractTracks($data);
+	my @keep = grep { ref($_) eq 'HASH' && !$_->{is_seed} } @$tracks;
+	_queueResults($request, $client, \@keep, 1);
 }
 
 sub _instantPlaylist {

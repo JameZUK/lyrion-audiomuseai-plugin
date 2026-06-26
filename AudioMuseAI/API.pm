@@ -335,4 +335,33 @@ sub start_clustering {
 	_post('/api/clustering/start', {}, $cb_ok, $cb_err, TIMEOUT_FAST);
 }
 
+# SemGrove: similarity by seed song over the MERGED lyrics+audio index —
+# a different notion of "similar" than /api/similar_tracks (audio only).
+# Response: { results: [ { item_id, title, author, similarity, is_seed }, ... ],
+# count }. results[0] is the seed itself (is_seed=true) and must be filtered
+# out before queueing. 404 if the seed lacks both lyrics + audio analysis.
+sub sem_grove {
+	my ($item_id, $n, $cb_ok, $cb_err) = @_;
+	$n ||= 25;
+	_post('/api/sem_grove/search', { item_id => "$item_id", limit => $n },
+		$cb_ok, $cb_err, TIMEOUT_LONG);
+}
+
+# Saved "alchemy radios" (anchor + temperature + n_results, named). List is
+# cheap and slow-moving — cache 30s. Response: { radios: [ { id, anchor_id,
+# name, temperature, n_results, enabled }, ... ] }.
+sub list_radios {
+	my ($cb_ok, $cb_err) = @_;
+	_get('/api/radios', $cb_ok, $cb_err, TIMEOUT_FAST, 30);
+}
+
+# Run every enabled radio — AudioMuse upserts one playlist per radio in the
+# configured media server (Lyrion), reusing existing playlists by name.
+# Generating can take a while. Response: { message, radios_enabled,
+# playlists_created, failed: [...] }.
+sub run_radios {
+	my ($cb_ok, $cb_err) = @_;
+	_post('/api/radios/run', {}, $cb_ok, $cb_err, TIMEOUT_LONG);
+}
+
 1;
