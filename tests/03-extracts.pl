@@ -37,12 +37,6 @@ my $similar_tracks_fx = [
     { item_id => '1002', title => 'B', author => 'Y', album => 'Alb', distance => 0.18 },
 ];
 
-# app_artist_similarity.py::get_similar_artists_endpoint — bare array.
-my $similar_artists_fx = [
-    { artist => 'Josh Ritter', artist_id => undef, divergence => 53.7 },
-    { artist => 'Dawes',       artist_id => undef, divergence => 61.2 },
-];
-
 # app_voyager.py::search_tracks_endpoint — bare array.
 my $search_tracks_fx = [
     { item_id => '1', title => 't1', author => 'a', album => 'A' },
@@ -118,7 +112,6 @@ my $chat_inner_fx = {
 
 my @ok_cases = (
     [ 'similar_tracks (array)',       $similar_tracks_fx, 2,  '1001' ],
-    [ 'similar_artists (array)',      $similar_artists_fx, 2, undef ],
     [ 'search_tracks (array)',        $search_tracks_fx, 2,   '1'    ],
     [ 'sonic_fingerprint (array)',    $sonic_fp_fx, 1,         '5'    ],
     [ 'clap_search ({results})',      $clap_fx, 3,            '10'   ],

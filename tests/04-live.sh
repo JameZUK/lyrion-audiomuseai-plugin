@@ -162,13 +162,10 @@ body=$(curl -sS -X POST -H "$H" -H "$CT" \
   "$URL/api/lyrics/search/text")
 assert_keys '/api/lyrics/search/text: returns {query, results}' "$body" query results
 
-# --- 8. /api/similar_artists (divergence rename) ---
-body=$(curl -sS -G -H "$H" \
-  --data-urlencode 'artist=Frank Turner' --data-urlencode 'n=3' \
-  "$URL/api/similar_artists")
-assert_array_keys '/api/similar_artists: items carry {artist, divergence}' "$body" artist divergence
-
-# --- 9. /api/search_tracks (legacy `artist=` param) ---
+# --- 8. /api/search_tracks (legacy `artist=` param) ---
+# Note: the plugin no longer calls /api/similar_artists (the "Similar to an
+# artist" flow now blends via /api/alchemy seeded from the artist's tracks),
+# so there's no live check for it here.
 body=$(curl -sS -G -H "$H" \
   --data-urlencode 'search_query=Frank Turner' "$URL/api/search_tracks")
 assert_array_keys '/api/search_tracks: items carry {item_id, title, author}' "$body" item_id title author

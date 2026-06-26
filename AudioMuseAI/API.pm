@@ -244,14 +244,6 @@ sub similar_tracks {
 	_get($path, $cb_ok, $cb_err, TIMEOUT_QUERY);
 }
 
-sub similar_artists {
-	my ($artist, $n, $cb_ok, $cb_err) = @_;
-	$n ||= 10;
-	my $path = sprintf('/api/similar_artists?artist=%s&n=%d',
-		uri_escape_utf8($artist), $n);
-	_get($path, $cb_ok, $cb_err, TIMEOUT_QUERY);
-}
-
 sub search_tracks {
 	my ($artist, $cb_ok, $cb_err) = @_;
 	my $path = '/api/search_tracks?artist=' . uri_escape_utf8($artist);

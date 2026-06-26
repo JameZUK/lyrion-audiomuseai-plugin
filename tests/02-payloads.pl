@@ -162,13 +162,6 @@ sub fire_get {
         $url // '(no request)');
 
     $url = fire_get(sub {
-        Plugins::AudioMuseAI::API::similar_artists('Frank Turner', 5, sub {}, sub {});
-    });
-    check('similar_artists: URL encodes artist + n',
-        $url =~ m{/api/similar_artists\?artist=Frank%20Turner&n=5$},
-        $url // '(no request)');
-
-    $url = fire_get(sub {
         Plugins::AudioMuseAI::API::search_tracks('U2', sub {}, sub {});
     });
     check('search_tracks: URL uses legacy `artist=` (server has back-compat)',

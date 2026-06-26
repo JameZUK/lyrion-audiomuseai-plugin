@@ -67,10 +67,11 @@ curl -X POST http://lyrion:9000/jsonrpc.js -H "Content-Type: application/json" -
 # similar to a specific track id (Lyrion track ID, integer)
 {"params":["bb:bb:55:90:9c:db",["audiomuseai","similar_track","track_id:2042418"]]}
 
-# similar artist — first lookup returns a pickable list, then call
-# similar_artist_with_artist with a chosen name
+# "music like this artist" — one shot, a blend in the artist's vein.
+# Pass artist_id (Lyrion contributor id) for a picked library artist so its
+# tracks resolve locally; a free-typed `artist:` name uses AudioMuse's search.
 {"params":["bb:bb:55:90:9c:db",["audiomuseai","similar_artist","artist:Olivia Rodrigo"]]}
-{"params":["bb:bb:55:90:9c:db",["audiomuseai","similar_artist_with_artist","artist:Phoebe Bridgers"]]}
+{"params":["bb:bb:55:90:9c:db",["audiomuseai","similar_artist","artist_id:184394"]]}
 
 # sonic fingerprint (player's listening-history-based playlist)
 {"params":["bb:bb:55:90:9c:db",["audiomuseai","sonic_fp"]]}

@@ -24,7 +24,7 @@ use Slim::Menu::TrackInfo;
 use Slim::Menu::AlbumInfo;
 
 use constant {
-	VERSION             => '0.5.1',
+	VERSION             => '0.5.2',
 	HEALTHCHECK_DELAY   => 5,
 	# Cap search-result menus to keep the UI navigable on hardware
 	# controllers; AudioMuse can return hundreds of tracks for prolific
@@ -191,10 +191,6 @@ sub initPlugin {
 	Slim::Control::Request::addDispatch(['audiomuseai', 'alchemy_album'],
 		[1, 1, 1, \&_alchemyAlbum]);
 
-	# Instant playlist with recent prompts
-	Slim::Control::Request::addDispatch(['audiomuseai', 'similar_artist_with_artist'],
-		[1, 1, 1, \&_similarArtistWithArtist]);
-
 	# Settings-page AJAX support: report the latest connection-test result
 	# as a JSON-RPC query so the page can poll without reloading.
 	Slim::Control::Request::addDispatch(['audiomuseai', 'test_result'],
@@ -330,6 +326,11 @@ sub _artistInfoSimilar {
 	return unless $artist;
 	my $name = ref($artist) ? $artist->name : "$artist";
 	return unless defined $name && length $name;
+	# Pass the contributor id so similar_artist resolves the tracks from the
+	# local library (handles composite/credit artist names).
+	my %params = ( artist => "$name" );
+	my $aid = ref($artist) ? eval { $artist->id } : undef;
+	$params{artist_id} = "$aid" if defined $aid && length "$aid";
 	return {
 		type => 'redirect',
 		name => string('PLUGIN_AUDIOMUSEAI_INFO_SIMILAR_ARTIST'),
@@ -338,7 +339,7 @@ sub _artistInfoSimilar {
 				go => {
 					cmd    => ['audiomuseai', 'similar_artist'],
 					player => 0,
-					params => { artist => "$name" },
+					params => \%params,
 				},
 			},
 		},
@@ -738,7 +739,7 @@ sub _browseArtists {
 			my $name = $a->{artist} // $a->{name};
 			next unless defined $name && length $name;
 			push @items, _libraryArtistItem($name,
-				['audiomuseai', $target]);
+				['audiomuseai', $target], $a->{id});
 			$fetched++;
 		}
 	};
@@ -802,10 +803,10 @@ sub _filterArtists {
 		},
 	};
 
-	for my $name (@$matches) {
-		next if lc($name) eq lc($query);  # already at the top
-		push @items, _libraryArtistItem($name,
-			['audiomuseai', $target]);
+	for my $m (@$matches) {
+		next if lc($m->{name}) eq lc($query);  # already at the top
+		push @items, _libraryArtistItem($m->{name},
+			['audiomuseai', $target], $m->{id});
 	}
 
 	_emit($request, \@items);
@@ -830,7 +831,7 @@ sub _libraryArtists {
 		for my $a (@$loop) {
 			my $name = $a->{artist} // $a->{name};
 			next unless defined $name && length $name;
-			push @out, $name;
+			push @out, { id => $a->{id}, name => $name };
 		}
 	};
 	$log->warn("library artist lookup failed: $@") if $@;
@@ -838,7 +839,14 @@ sub _libraryArtists {
 }
 
 sub _libraryArtistItem {
-	my ($artistName, $cmd) = @_;
+	my ($artistName, $cmd, $artist_id) = @_;
+	# Carry the Lyrion contributor id when we have it, so the dispatched
+	# action resolves the artist's tracks from the local library rather than
+	# AudioMuse's name search (which can't match composite/credit contributor
+	# names like "Dave Grohl, Foo Fighters, ...").
+	my %params = ( artist => "$artistName" );
+	$params{artist_id} = "$artist_id"
+		if defined $artist_id && length "$artist_id";
 	# NOTE: no `nextWindow => 'refresh'` here. Tapping an artist
 	# dispatches to similar_artist or similar_song_search, which return
 	# ANOTHER menu (a picker). Squeezer pushes the picker as a new
@@ -852,10 +860,46 @@ sub _libraryArtistItem {
 			go => {
 				cmd    => $cmd,
 				player => 0,
-				params => { artist => "$artistName" },
+				params => \%params,
 			},
 		},
 	};
+}
+
+# A library contributor's tracks, straight from Lyrion (by artist_id), shaped
+# like AudioMuse search_tracks results ({ item_id, title, author }) so they
+# drop into _tracksAsPickMenu / _queueResults. This sidesteps AudioMuse's
+# artist-name matching, which can't resolve composite/credit contributor
+# names. AudioMuse indexes by the same Lyrion track IDs, so the ids are valid
+# seeds.
+sub _libraryArtistTracks {
+	my ($artist_id, $limit) = @_;
+	return [] unless defined $artist_id && $artist_id =~ /\A\d+\z/;
+	$limit ||= MAX_PICK_RESULTS;
+	my @out;
+	eval {
+		my $req = Slim::Control::Request::executeRequest(undef,
+			['titles', 0, $limit, "artist_id:$artist_id", 'tags:a']);
+		return unless $req;
+		my $loop = $req->getResult('titles_loop') || [];
+		for my $t (@$loop) {
+			next unless defined $t->{id};
+			push @out, {
+				item_id => '' . $t->{id},
+				title   => $t->{title},
+				author  => $t->{artist},
+			};
+		}
+	};
+	$log->warn("library artist tracks lookup failed for $artist_id: $@") if $@;
+	return \@out;
+}
+
+# Just the track IDs for a contributor (a fuller list than the pick menu —
+# used as alchemy seeds / the exclude set for "music like this artist").
+sub _libraryArtistTrackIds {
+	my $artist_id = shift;
+	return [ map { $_->{item_id} } @{ _libraryArtistTracks($artist_id, 500) } ];
 }
 
 sub _menuInstant {
@@ -1102,7 +1146,22 @@ sub _similarSongSearch {
 	my $request = shift;
 	my $client  = $request->client or return $request->setStatusBadParams;
 	my $artist  = _trim($request->getParam('artist') // '');
-	return _notify($request, string('PLUGIN_AUDIOMUSEAI_EMPTY_INPUT')) unless length $artist;
+	my $aid     = _trim($request->getParam('artist_id') // '');
+	return _notify($request, string('PLUGIN_AUDIOMUSEAI_EMPTY_INPUT'))
+		unless length $artist || length $aid;
+
+	# Picked library artist: list its tracks straight from Lyrion (handles
+	# composite contributor names AudioMuse's search can't match). A
+	# free-typed name falls through to AudioMuse's fuzzy search_tracks.
+	if (length $aid && $aid =~ /\A\d+\z/) {
+		my $tracks = _libraryArtistTracks($aid);
+		unless (@$tracks) {
+			return _notify($request,
+				string('PLUGIN_AUDIOMUSEAI_NO_TRACKS_FOR_ARTIST'));
+		}
+		return _emit($request,
+			_tracksAsPickMenu($tracks, ['audiomuseai', 'similar_track'], 'track_id'));
+	}
 
 	$request->setStatusProcessing;
 	Plugins::AudioMuseAI::API::search_tracks(
@@ -1132,64 +1191,97 @@ sub _similarTrack {
 	);
 }
 
+# "Music like this artist" from a single selection (discussion #686 —
+# mamema). Picking an artist used to show a second pick-list of ~10 similar
+# artists; now it goes straight to a playlist. We seed AudioMuse's alchemy
+# (centroid) with the artist's own analyzed tracks and filter them back out,
+# so you get a varied blend in that artist's vein — not the artist's own
+# catalogue, and without the extra tap.
 sub _similarArtist {
 	my $request = shift;
 	my $client  = $request->client or return $request->setStatusBadParams;
 	my $artist  = _trim($request->getParam('artist') // '');
-	return _notify($request, string('PLUGIN_AUDIOMUSEAI_EMPTY_INPUT')) unless length $artist;
+	my $aid     = _trim($request->getParam('artist_id') // '');
+	unless (length $artist || length $aid) {
+		return _notify($request, string('PLUGIN_AUDIOMUSEAI_EMPTY_INPUT'));
+	}
 
+	$log->info('similar_artist (blend): ' . _logSafe($artist)
+		. (length $aid ? " [id $aid]" : ''));
 	$request->setStatusProcessing;
-	Plugins::AudioMuseAI::API::similar_artists(
-		$artist, 10,
-		sub {
-			my $data = shift;
-			my @arts = ref($data) eq 'ARRAY' ? @$data : ();
-			unless (@arts) {
-				return _notify($request, string('PLUGIN_AUDIOMUSEAI_NO_RESULTS'));
-			}
-			# Render a pick list of similar artists. User taps one to
-			# queue tracks by that artist (via search_tracks).
-			my @items;
-			for my $a (@arts) {
-				my $name = _safeText($a->{artist} // $a->{name} // '');
-				next unless length $name;
-				# Score field renamed `distance` → `divergence` upstream
-				# (artist_similarity blueprint). Keep the old name as
-				# fallback for any older AudioMuse server.
-				my $score = $a->{divergence} // $a->{distance};
-				my $sub = '';
-				if (defined $score) {
-					$sub = sprintf(' (sim %.2f)', $score);
+
+	# A picked library artist carries its Lyrion contributor id — use the
+	# local library's exact track list (AudioMuse's name search misses
+	# composite/credit names like "Dave Grohl, Foo Fighters, ..."). A
+	# free-typed name (no id) goes through AudioMuse's fuzzy search_tracks.
+	if (length $aid && $aid =~ /\A\d+\z/) {
+		my $ids = _libraryArtistTrackIds($aid);
+		unless (@$ids) {
+			return _notify($request,
+				string('PLUGIN_AUDIOMUSEAI_NO_TRACKS_FOR_ARTIST'));
+		}
+		_similarArtistBlend($request, $client, $artist, $ids);
+	}
+	else {
+		Plugins::AudioMuseAI::API::search_tracks(
+			$artist,
+			sub {
+				my $tracks = shift;
+				my @ids = grep { defined && /\A\d+\z/ }
+					map { $_->{item_id} // $_->{id} }
+					(ref($tracks) eq 'ARRAY' ? @$tracks : ());
+				unless (@ids) {
+					return _notify($request,
+						string('PLUGIN_AUDIOMUSEAI_NO_TRACKS_FOR_ARTIST'));
 				}
-				push @items, {
-					text    => $name . $sub,
-					actions => {
-						go => {
-							cmd    => ['audiomuseai', 'similar_artist_with_artist'],
-							player => 0,
-							params => { artist => "$name" },
-						},
-					},
-					nextWindow => 'refresh',
-				};
-			}
-			_emit($request, \@items);
-		},
+				_similarArtistBlend($request, $client, $artist, \@ids);
+			},
+			sub { _notifyError($request, shift) },
+		);
+	}
+}
+
+# Seed AudioMuse's alchemy (centroid) with the artist's tracks ($ids) and
+# queue the blend, dropping the artist's own tracks (by id, and by name in
+# _queueBlend) so the queue moves outward.
+sub _similarArtistBlend {
+	my ($request, $client, $artist, $ids) = @_;
+	my %exclude = map { $_ => 1 } @$ids;     # full known track set for the artist
+	my @seeds   = @$ids;
+	# Cap the seed set — a prolific artist can have hundreds of tracks and the
+	# centroid only needs a representative sample.
+	@seeds = @seeds[0 .. (MAX_PICK_RESULTS - 1)] if @seeds > MAX_PICK_RESULTS;
+	Plugins::AudioMuseAI::API::alchemy(
+		\@seeds, [], _count($client),
+		sub { _queueBlend($request, $client, shift, \%exclude, 0, $artist) },
 		sub { _notifyError($request, shift) },
 	);
 }
 
-sub _similarArtistWithArtist {
-	my $request = shift;
-	my $client  = $request->client or return $request->setStatusBadParams;
-	my $artist  = _trim($request->getParam('artist') // '');
-	return _notify($request, string('PLUGIN_AUDIOMUSEAI_EMPTY_INPUT')) unless length $artist;
-	$request->setStatusProcessing;
-	Plugins::AudioMuseAI::API::search_tracks(
-		$artist,
-		sub { _queueResults($request, $client, shift, 0) },
-		sub { _notifyError($request, shift) },
-	);
+# Queue an alchemy/blend result, dropping any seed tracks (the $exclude set)
+# so the queue moves outward instead of replaying the seeds. $loadFresh as
+# per _queueResults (0 = append, 1 = replace). $excludeArtist (optional)
+# additionally drops every track by that artist name — search_tracks only
+# returns a capped sample of an artist's IDs, so for "music like this artist"
+# an ID-only exclude misses the rest; matching on the author name catches
+# them all.
+sub _queueBlend {
+	my ($request, $client, $data, $exclude, $loadFresh, $excludeArtist) = @_;
+	$exclude ||= {};
+	my $artist_lc = defined $excludeArtist ? lc(_trim($excludeArtist)) : '';
+	my $tracks = _extractTracks($data);
+	my @keep = grep {
+		ref($_) eq 'HASH' && do {
+			my $id = $_->{item_id} // $_->{id};
+			my $ok = defined $id && !$exclude->{$id};
+			if ($ok && length $artist_lc) {
+				my $a = lc(_trim($_->{author} // $_->{album_artist} // ''));
+				$ok = ($a ne $artist_lc);
+			}
+			$ok;
+		};
+	} @$tracks;
+	_queueResults($request, $client, \@keep, $loadFresh);
 }
 
 sub _sonicFingerprint {
