@@ -47,7 +47,7 @@ Everything lives under **My Music → AudioMuse-AI**:
 - **Lyrics search** — find songs by a lyric phrase or theme.
 - **Find Path** — make a smooth, gradual transition playlist from one song to another.
 
-> These need an on-screen keyboard, so they work on the web UI, Material, and iPeng. (Squeezer can't type — use the [context-menu shortcut](#shortcut-the-context-menu) instead.)
+> These need an on-screen keyboard — they work on the web UI, Material, iPeng, and Squeezer.
 
 ### Keep it going & blend
 
@@ -64,7 +64,7 @@ Everything lives under **My Music → AudioMuse-AI**:
 
 ### Shortcut: the context menu
 
-Browse to **any** artist, track, or album the normal way and open its context menu (right-click on the web UI, long-press or the **⋮** icon on Material, 3-dot on iPeng) — you'll find **AudioMuse: similar artists / similar tracks / similar (sound + lyrics) / alchemy from this album** right there. It's the fastest path, and the recommended one on Squeezer.
+Browse to **any** artist, track, or album the normal way and open its context menu (right-click on the web UI, long-press or the **⋮** icon on Material, 3-dot on iPeng) — you'll find **AudioMuse: similar artists / similar tracks / similar (sound + lyrics) / alchemy from this album** right there. It's often the fastest path on any controller.
 
 > On **Material**, these sit under **More** in the context menu — see [docs/USAGE.md](docs/USAGE.md#context-menu).
 

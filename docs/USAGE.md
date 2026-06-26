@@ -18,7 +18,7 @@ Entries are ordered by how often you'll reach for them.
 
 ### Browse & pick
 
-Both of these start with a **"Search for an artist…"** box (on controllers that render a text field — Material, web UI, iPeng) followed by an alphabetical, paged artist list (the fallback for Squeezer).
+Both of these start with a **"Search for an artist…"** box — type a name, or scroll the alphabetical, paged artist list below it.
 
 | Item | Flow |
 |---|---|
@@ -39,9 +39,9 @@ Both of these start with a **"Search for an artist…"** box (on controllers tha
 |---|---|
 | **Save current queue as playlist (auto-named)** | Saves the current queue. The name comes from your [auto-name setting](SETTINGS.md#auto-name-strategies); on the web UI / Material you can type a custom name instead. |
 
-### Text input (web UI / Material / iPeng)
+### Text input
 
-These render but **can't be activated on Squeezer**, which doesn't draw Jive `input` fields. Use the [context menu](#context-menu) instead there.
+These need an on-screen keyboard, and work on every controller (web UI, Material, iPeng, Squeezer).
 
 | Item | What it does |
 |---|---|
@@ -70,7 +70,7 @@ The plugin registers info-providers for artists, tracks, and albums. **Browse no
 
 > **Material users — look under "More".** Material's context menu shows only the common actions (Play, Add to queue, Favourites…) at the top, then a **More** entry. The AudioMuse items are inside **More**, not on the first screen. So the path is: long-press (or **⋮**) → **More** → *AudioMuse: …*. (On the default web UI and iPeng they appear directly in the context menu.)
 
-This gives you Lyrion's native filter / letter-jump for free, and is the **recommended path on Squeezer** (which can filter the standard browse but can't render text-input fields inside the plugin menu).
+This gives you Lyrion's native filter / letter-jump for free — often the fastest path on any controller.
 
 ### Auto-extend
 
@@ -88,7 +88,7 @@ If you've selected a native AudioMuse provider for a player, the plugin's own Dy
 | **Default Lyrion web UI** | Full feature set, including text-input items. |
 | **Material Skin** | Full feature set. The settings status panel is theme-aware (works on light and dark). |
 | **iPeng** | Full feature set. |
-| **Squeezer (Android)** | Tap-only items work. Text-input items render but can't be activated (no Jive `input` field) — use the [context menu](#context-menu) for typed-search flows. |
+| **Squeezer (Android)** | Full feature set, including text-input items. |
 | **SqueezePlay / Touch / Boom** | Built-in controllers; should work via the same Jive protocol. Untested. |
 
 ## How AudioMuse-AI features map to menu items

@@ -17,7 +17,6 @@
 ## Limitations & gotchas
 
 - **Similarity needs clustering done.** Until analysis *and* clustering have completed once, `Similar to *` returns "Service not ready". CLAP-based features (Fingerprint, Instant, Mood) work after analysis alone.
-- **Squeezer can't render Jive `input` fields.** Instant Playlist, AI Chat, Lyrics search, Find Path, and the typed name for Save Playlist appear but won't react to taps. Use the context-menu items from My Music → Artists / Songs as the workaround.
 - **Track IDs are assumed stable.** AudioMuse stores track IDs as Lyrion assigned them at scan time. If you re-scan and Lyrion reassigns IDs, re-run AudioMuse analysis. (Rare in practice.)
 - **Recent prompts** are remembered per-player but no longer surface in a menu (simplified for Squeezer compatibility). Still readable via the `audiomuseai menu_instant` JSON-RPC command.
 - **Find Path** is the most niche feature — only useful for a deliberate sonic transition between two specific tracks.
