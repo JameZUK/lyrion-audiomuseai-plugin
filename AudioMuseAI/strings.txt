@@ -300,6 +300,9 @@ PLUGIN_AUDIOMUSEAI_DYNAMIC_STOP
 PLUGIN_AUDIOMUSEAI_DSTM_SIMILAR
 	EN	AudioMuse-AI: Similar to recent tracks
 
+PLUGIN_AUDIOMUSEAI_DSTM_ALBUM
+	EN	AudioMuse-AI: Mix by recent album (broader)
+
 PLUGIN_AUDIOMUSEAI_DSTM_FINGERPRINT
 	EN	AudioMuse-AI: Sonic fingerprint
 

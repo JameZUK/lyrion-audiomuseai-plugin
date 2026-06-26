@@ -24,7 +24,7 @@ use Slim::Menu::TrackInfo;
 use Slim::Menu::AlbumInfo;
 
 use constant {
-	VERSION             => '0.4.1',
+	VERSION             => '0.4.2',
 	HEALTHCHECK_DELAY   => 5,
 	# Cap search-result menus to keep the UI navigable on hardware
 	# controllers; AudioMuse can return hundreds of tracks for prolific
@@ -270,6 +270,8 @@ sub initPlugin {
 	if ( eval { require Slim::Plugin::DontStopTheMusic::Plugin; 1 } ) {
 		Slim::Plugin::DontStopTheMusic::Plugin->registerHandler(
 			'PLUGIN_AUDIOMUSEAI_DSTM_SIMILAR',     \&_dstmMixSimilar);
+		Slim::Plugin::DontStopTheMusic::Plugin->registerHandler(
+			'PLUGIN_AUDIOMUSEAI_DSTM_ALBUM',       \&_dstmMixAlbum);
 		Slim::Plugin::DontStopTheMusic::Plugin->registerHandler(
 			'PLUGIN_AUDIOMUSEAI_DSTM_FINGERPRINT', \&_dstmMixFingerprint);
 		$log->info("registered Don't Stop The Music providers");
@@ -1500,6 +1502,33 @@ sub _dstmMixFingerprint {
 	);
 }
 
+# "Mix by album" (discussion #686 — wirrunna). MusicIP/SugarCube can seed
+# their continuous mix from the whole album rather than the single last
+# track, giving a broader result. We do the same by feeding all of the last
+# track's album tracks to AudioMuse's alchemy (centroid blend) endpoint, then
+# filtering the album's own tracks back out so the queue continues outward
+# rather than replaying the album.
+sub _dstmMixAlbum {
+	my ($client, $cb) = @_;
+	return $cb->($client, []) unless $client && $cb;
+	my $ids = _dstmSeedAlbumTrackIds($client);
+	unless ($ids && @$ids) {
+		$log->info('DSTM album: no seed album in queue');
+		return $cb->($client, []);
+	}
+	my %exclude = map { $_ => 1 } @$ids;
+	$log->info('DSTM album mix seeded from ' . scalar(@$ids)
+		. ' album tracks on ' . $client->id);
+	Plugins::AudioMuseAI::API::alchemy(
+		$ids, [], _count($client),
+		sub { $cb->($client, _dstmTrackUrls(shift, \%exclude)); },
+		sub {
+			$log->warn('DSTM album mix failed: ' . (shift // 'unknown'));
+			$cb->($client, []);
+		},
+	);
+}
+
 # Seed from the last track in the player's queue — the trailing context
 # DSTM is trying to continue from. Returns a track ID or undef.
 sub _dstmSeedTrackId {
@@ -1510,15 +1539,36 @@ sub _dstmSeedTrackId {
 	return $track->id;
 }
 
+# All track IDs of the album the player's last queued track belongs to —
+# the seed set for the "mix by album" DSTM provider.
+sub _dstmSeedAlbumTrackIds {
+	my $client = shift or return undef;
+	my $count = Slim::Player::Playlist::count($client) or return undef;
+	my $track = Slim::Player::Playlist::track($client, $count - 1) or return undef;
+	my @ids;
+	eval {
+		my $album = $track->album or return;
+		my $rs = $album->tracks;
+		while (my $t = $rs->next) {
+			push @ids, '' . $t->id if $t && defined $t->id;
+		}
+	};
+	$log->warn("DSTM album seed lookup failed: $@") if $@;
+	return \@ids;
+}
+
 # Map an AudioMuse track-list response to local LMS track URLs (DSTM wants
-# URLs). Skips anything not resolvable in the local library.
+# URLs). Skips anything not resolvable in the local library, and anything in
+# the optional $exclude set (used by the album mix to drop the seed tracks).
 sub _dstmTrackUrls {
-	my $data = shift;
+	my ($data, $exclude) = @_;
+	$exclude ||= {};
 	my $tracks = _extractTracks($data);
 	my @urls;
 	for my $t (@$tracks) {
 		my $id = $t->{item_id} // $t->{id};
 		next unless defined $id && $id =~ /\A\d+\z/;
+		next if $exclude->{$id};
 		my $obj = eval { Slim::Schema->find('Track', $id) } or next;
 		my $url = eval { $obj->url };
 		push @urls, $url if defined $url && length $url;
@@ -1537,6 +1587,7 @@ sub _nativeDstmIsOurs {
 	};
 	return 0 unless defined $prov && length $prov;
 	return $prov eq 'PLUGIN_AUDIOMUSEAI_DSTM_SIMILAR'
+		|| $prov eq 'PLUGIN_AUDIOMUSEAI_DSTM_ALBUM'
 		|| $prov eq 'PLUGIN_AUDIOMUSEAI_DSTM_FINGERPRINT';
 }
 
