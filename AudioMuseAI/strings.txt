@@ -133,16 +133,16 @@ PLUGIN_AUDIOMUSEAI_MENU_FINGERPRINT
 	EN	Sonic Fingerprint
 
 PLUGIN_AUDIOMUSEAI_MENU_INSTANT
-	EN	Instant Playlist (text — needs typing)...
+	EN	Instant Playlist...
 
 PLUGIN_AUDIOMUSEAI_MENU_CHAT
-	EN	AI Chat Playlist (LLM, text — needs typing)...
+	EN	AI Chat Playlist (LLM)...
 
 PLUGIN_AUDIOMUSEAI_PROMPT_CHAT
 	EN	Describe the playlist in plain language — the LLM will translate it to a query.
 
 PLUGIN_AUDIOMUSEAI_MENU_LYRICS
-	EN	Find tracks by lyric phrase (text — needs typing)...
+	EN	Find tracks by lyric phrase...
 
 PLUGIN_AUDIOMUSEAI_PROMPT_LYRICS
 	EN	Describe the lyric or theme (e.g. "songs about heartbreak in the rain")
@@ -181,7 +181,7 @@ PLUGIN_AUDIOMUSEAI_RADIOS_RUN_OK
 	EN	Built %d playlist(s) from %d radio(s). Find them in Playlists.
 
 PLUGIN_AUDIOMUSEAI_MENU_FINDPATH
-	EN	Build a sonic journey between two songs (text — needs typing)...
+	EN	Build a sonic journey between two songs...
 
 PLUGIN_AUDIOMUSEAI_MENU_DYNAMIC
 	EN	Dynamic Playlists

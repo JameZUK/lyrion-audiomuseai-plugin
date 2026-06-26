@@ -24,7 +24,7 @@ use Slim::Menu::TrackInfo;
 use Slim::Menu::AlbumInfo;
 
 use constant {
-	VERSION             => '0.5.0',
+	VERSION             => '0.5.1',
 	HEALTHCHECK_DELAY   => 5,
 	# Cap search-result menus to keep the UI navigable on hardware
 	# controllers; AudioMuse can return hundreds of tracks for prolific
@@ -112,9 +112,9 @@ sub initPlugin {
 	# entries in similar_song / similar_artist for actual autocomplete.
 	Slim::Control::Request::addDispatch(['audiomuseai', 'filter_artists'],
 		[1, 1, 1, \&_filterArtists]);
-	# Tap-only paginated artist browse (no text input required —
-	# necessary for controllers like Squeezer that don't render the
-	# Jive 'input' field at all).
+	# Tap-only paginated artist browse — a no-typing alternative to the
+	# filter_artists search box, for stepping through the whole library
+	# alphabetically.
 	Slim::Control::Request::addDispatch(['audiomuseai', 'browse_artists'],
 		[1, 1, 1, \&_browseArtists]);
 
@@ -495,9 +495,8 @@ sub _topMenu {
 	push @menu, _actionItem('PLUGIN_AUDIOMUSEAI_MENU_SAVE_PLAYLIST',
 		['audiomuseai', 'save_playlist'], 1);
 
-	# --- Tier 5: text-input required (web UI / Material only) ---
-	# Squeezer skips items with `input` blocks cleanly — they just don't
-	# render. Suffix in the label warns users that typing is required.
+	# --- Tier 5: text-input items (the user types a prompt) ---
+	# These carry a Jive `input` block, which every controller renders.
 	push @menu, _textInputItem('PLUGIN_AUDIOMUSEAI_MENU_INSTANT',
 		'PLUGIN_AUDIOMUSEAI_PROMPT_INSTANT',
 		['audiomuseai', 'instant'], 'prompt');
@@ -707,11 +706,10 @@ sub _browseArtists {
 
 	# First page only: a search box + the explanatory header.
 	if ($start == 0) {
-		# Search box (discussion #686 — wirrunna). Controllers that render
-		# the Jive 'input' field (Material, default web UI) show a search
-		# field, which beats paging the whole library alphabetically.
-		# Squeezer skips 'input' items, so it falls through to the
-		# alphabetical paging below — both audiences are served.
+		# Search box (discussion #686 — wirrunna). The Jive 'input' block
+		# renders as a search field, which beats paging the whole library
+		# alphabetically; the paged list below is still there for browsing
+		# without typing.
 		push @items, _textInputItem(
 			$target eq 'similar_song_search'
 				? 'PLUGIN_AUDIOMUSEAI_SEARCH_ARTIST_FOR_SONG'
@@ -866,9 +864,9 @@ sub _menuInstant {
 	$log->info('menu_instant reached (client='
 		. ($client ? $client->id : 'none') . ')');
 
-	# Diagnostic: drop the 'New prompt...' text input item. If Squeezer
-	# now renders this submenu the issue was the input item; if it still
-	# flashes we're after something else.
+	# This submenu lists the player's recent prompts only (no inline
+	# 'New prompt...' input item) — typing a fresh prompt is done from the
+	# top-level Instant Playlist item instead.
 	my @menu;
 
 	if ($client) {
