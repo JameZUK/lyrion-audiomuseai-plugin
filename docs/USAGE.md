@@ -10,7 +10,8 @@ Entries are ordered by how often you'll reach for them.
 
 | Item | What it does | Needs |
 |---|---|---|
-| **Similar to current track** | Queues tracks sonically similar to whatever's playing now. | Clustering done. |
+| **Similar to current track** | Queues tracks sonically similar to whatever's playing now (audio only). | Clustering done. |
+| **Similar (sound + lyrics) to current track** | Like the above, but matches on the **merged lyrics+audio** index (SemGrove) — considers what the words *mean*, not just how it sounds. | Lyrics + audio analysis for the seed. |
 | **Sonic Fingerprint** | Replaces the queue with a personalised playlist built from your listening history. | A few hundred plays logged. |
 | **Browse by Mood** | Seven preset CLAP prompts (Energetic, Calm, Sad, Happy, Aggressive, Acoustic, Party). Tap one to queue a matching playlist. | Analysis done (CLAP cache). |
 | **Popular searches** | Community-popular search prompts pulled from your AudioMuse-AI server. Tap any phrase to queue. | Analysis done. |
@@ -30,6 +31,7 @@ Both of these start with a **"Search for an artist…"** box (on controllers tha
 |---|---|
 | **Dynamic Playlists** | Three modes: *Continuous similar to current track*, *Continuous from sonic fingerprint*, *Stop auto-extend*. Starting a mode keeps the queue refilled when it runs low. See [Auto-extend](#auto-extend) below. |
 | **Song Alchemy** | Per-player ADD / SUBTRACT lists. Add the current track to ADD, add another to SUBTRACT, then **Generate** to get a sonic blend that leans toward the first set and away from the second. |
+| **AudioMuse Radios** | Lists the saved "radios" (stations — anchor + size) you define in the AudioMuse-AI web UI. **Run all radios** asks AudioMuse to (re)build one Lyrion playlist per enabled radio, then you'll find them under Playlists. There's no per-radio "play now" — running rebuilds the playlists. |
 
 ### Tools
 
@@ -62,7 +64,8 @@ These render but **can't be activated on Squeezer**, which doesn't draw Jive `in
 The plugin registers info-providers for artists, tracks, and albums. **Browse normally** (My Music → Artists, type to filter, tap an artist) and open the item's context menu — right-click (web UI), long-press or the **⋮** icon (Material), 3-dot (iPeng). It includes:
 
 - **AudioMuse: similar artists** — on any artist
-- **AudioMuse: similar tracks** — on any track (in My Music, in the queue, anywhere)
+- **AudioMuse: similar tracks** — on any track (audio similarity)
+- **AudioMuse: similar (sound + lyrics)** — on any track (lyrics+audio similarity)
 - **AudioMuse: alchemy from this album** — on any album (seeds alchemy with all the album's tracks)
 
 > **Material users — look under "More".** Material's context menu shows only the common actions (Play, Add to queue, Favourites…) at the top, then a **More** entry. The AudioMuse items are inside **More**, not on the first screen. So the path is: long-press (or **⋮**) → **More** → *AudioMuse: …*. (On the default web UI and iPeng they appear directly in the context menu.)
@@ -92,12 +95,14 @@ If you've selected a native AudioMuse provider for a player, the plugin's own Dy
 
 | AudioMuse feature | Plugin entry |
 |---|---|
-| Sonic similarity | Similar to current track / a song / an artist |
+| Sonic similarity (audio) | Similar to current track / a song / an artist |
+| SemGrove similarity (lyrics + audio) | Similar (sound + lyrics) — menu item + track context menu |
 | Sonic fingerprint | Sonic Fingerprint |
 | Instant playlist (CLAP) | Instant Playlist, Browse by Mood, Popular searches |
 | Chat-driven playlist (LLM) | AI Chat Playlist |
 | Lyrics search | Find tracks by lyric phrase |
 | Song Alchemy | Song Alchemy |
+| Alchemy radios (saved stations) | AudioMuse Radios |
 | Song Paths | Find Path between two songs |
 | Music Map | Open Music Map |
 | Library coverage | Settings → Server Status panel |

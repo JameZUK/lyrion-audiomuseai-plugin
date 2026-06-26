@@ -19,24 +19,54 @@ Requires a running [AudioMuse-AI](https://github.com/NeptuneHub/AudioMuse-AI) in
 
 Prefer to install by hand? See [docs/TROUBLESHOOTING.md → Manual install](docs/TROUBLESHOOTING.md#manual-install).
 
-## What you get
+## Features
 
-Under **My Music → AudioMuse-AI**:
+Everything lives under **My Music → AudioMuse-AI**:
 
-- **One-tap playlists** — Similar to current track, Sonic Fingerprint, Browse by Mood, Popular searches.
-- **Browse & pick** — find tracks similar to any artist or song, with a search box to jump straight to a name.
-- **Text prompts** — Instant Playlist, AI Chat Playlist (LLM), Lyrics search, and Find Path between two songs. *(web UI / Material / iPeng — these need a keyboard.)*
-- **Sessions** — Song Alchemy (blend tracks) and Dynamic Playlists (keep the queue topped up).
-- **Save & admin** — save the queue as a playlist, plus server status / analysis / clustering controls.
+<p align="center"><img src="docs/images/menu.png" alt="The AudioMuse-AI menu in Lyrion's Material skin" width="640"></p>
 
-It also adds **context-menu items** to Lyrion's normal browse (*AudioMuse: similar artists / similar tracks / alchemy from album*) and registers two native **Don't Stop The Music** providers.
+### Instant playlists (one tap)
 
-→ Full menu walkthrough: **[docs/USAGE.md](docs/USAGE.md)**
+- **Similar to current track** — builds a queue of songs that *sound* like whatever's playing right now.
+- **Similar (sound + lyrics)** — same idea, but it also matches on **lyrics**, not just the audio — great when the *feel* of the words matters.
+- **Sonic Fingerprint** — a personal mix drawn from your own listening history.
+- **Browse by Mood** — tap a mood (Energetic, Calm, Happy, Sad, Aggressive, Acoustic, Party) and get a matching playlist.
+- **Popular searches** — a list of community-popular prompts you can tap to try.
 
-## Two shortcuts worth knowing
+### Find music by artist or song
 
-- **Context menu** — browse to any artist, track, or album normally and use its context menu (right-click in the web UI / long-press or **⋮** in Material / 3-dot in iPeng) → **AudioMuse: similar…**. You get Lyrion's native filtering and letter-jump for free; recommended on Squeezer. *(In Material the AudioMuse items are under **More** — see [docs/USAGE.md](docs/USAGE.md#context-menu).)*
-- **Auto-extend** — pick an **AudioMuse-AI** entry under Player Settings → Audio → *Don't Stop The Music* (or start a **Dynamic Playlists** mode), and the queue refills itself with matching tracks as it runs low.
+- **Similar to an artist** — search or browse your library for an artist, tap them, and get tracks by the most similar artists.
+- **Similar to a song** — search for an artist, pick one of their songs, and get songs that sound like it.
+
+(Both start with a **search box**, so you can type a name instead of scrolling.)
+
+### Describe what you want (type it)
+
+- **Instant Playlist** — type a vibe in plain words (*"low-energy late-night ambient"*) and get a matching queue.
+- **AI Chat Playlist** — ask in natural language; your AudioMuse server's AI turns it into a playlist.
+- **Lyrics search** — find songs by a lyric phrase or theme.
+- **Find Path** — make a smooth, gradual transition playlist from one song to another.
+
+> These need an on-screen keyboard, so they work on the web UI, Material, and iPeng. (Squeezer can't type — use the [context-menu shortcut](#shortcut-the-context-menu) instead.)
+
+### Keep it going & blend
+
+- **Don't Stop The Music** — pick an AudioMuse mode in your player's audio settings and the queue refills itself as it runs low. Three flavours: *Similar to recent tracks*, *Mix by recent album* (broader), and *Sonic fingerprint*.
+- **Dynamic Playlists** — the same auto-extend, started from the plugin menu instead.
+- **Song Alchemy** — blend it your way: add songs you want it to lean toward, subtract ones to avoid, then generate.
+- **AudioMuse Radios** — one-tap rebuild of the saved "stations" you set up in the AudioMuse web UI.
+
+### Save, manage & link out
+
+- **Save current queue as a playlist** — auto-named (or type your own on web/Material).
+- **Server Status / Admin** — see the current task and progress, start analysis or clustering, or cancel a running job.
+- **Open Music Map** — jump to the AudioMuse-AI web map.
+
+### Shortcut: the context menu
+
+Browse to **any** artist, track, or album the normal way and open its context menu (right-click on the web UI, long-press or the **⋮** icon on Material, 3-dot on iPeng) — you'll find **AudioMuse: similar artists / similar tracks / similar (sound + lyrics) / alchemy from this album** right there. It's the fastest path, and the recommended one on Squeezer.
+
+> On **Material**, these sit under **More** in the context menu — see [docs/USAGE.md](docs/USAGE.md#context-menu).
 
 ## Documentation
 
