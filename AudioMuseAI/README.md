@@ -40,6 +40,7 @@ sudo systemctl restart lyrion-music-server
 
 - **Server URL**: e.g. `http://localhost:8000` (auto-prefixes `http://` if you forget).
 - **API token**: bearer token from the AudioMuse Administration UI. Whitespace and CR/LF are stripped.
+- **Server Name**: multi-server AudioMuse-AI only — this Lyrion server's display name in AudioMuse, sent as `server` on every API call. Leave blank otherwise.
 - **Default count**: 5–100 (clamped). Per-player override available via CLI; see below.
 - **Auto-extend**: enables DSTM-style queue refilling once a Dynamic Playlists mode is started.
 - **Test connection** runs a live probe; the result updates in place via JSON-RPC polling.

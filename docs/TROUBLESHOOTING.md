@@ -8,6 +8,10 @@
 
 **Test connection fails** — check the URL has a scheme, the token is correct, and Lyrion can reach the host. From the Lyrion box: `curl <url>/api/active_tasks`.
 
+**"This track isn't in AudioMuse-AI's index yet", empty results or wrong tracks with a multi-server AudioMuse-AI** — without a server name, AudioMuse resolves Lyrion's track IDs against its *default* music server (and **Run radios** creates playlists there). Set **Server Name** to this Lyrion server's display name in AudioMuse-AI's multi-server setup.
+
+**Similarity / playlist features fail with "400 Bad Request" after setting Server Name** — AudioMuse-AI has no server by that name. It must match the display name in AudioMuse (case doesn't matter) — check for typos, or a rename on the AudioMuse side. **Test connection** doesn't check the name.
+
 **A menu flashes and disappears (Squeezer)** — should be fixed in recent versions. If it recurs, check `server.log` for `plugin.audiomuseai` entries to see what the dispatcher returned.
 
 **A confirmation shows raw `<div …>` text (Material)** — fixed in v0.3.2; update the plugin.

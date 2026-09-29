@@ -6,6 +6,7 @@
 |---|---|
 | **Server URL** | Where AudioMuse-AI is running. `http://` is auto-prefixed; trailing slashes are stripped. |
 | **API token** | Bearer token from the AudioMuse-AI web UI → Administration. Whitespace trimmed; CR/LF rejected. |
+| **Server Name** | Only for AudioMuse-AI multi-server setups (v3.0.1+): this Lyrion server's display name in AudioMuse (`Lyrion` if AudioMuse created it automatically; case-insensitive). Sent as the `server` parameter on every API call so track IDs are resolved against Lyrion rather than AudioMuse's default server. Leave blank for single-server setups — nothing is sent. |
 | **Default count** | How many tracks AudioMuse returns per request (clamped 5–100). |
 | **Auto-extend the queue (DSTM)** | Lets the plugin's own Dynamic Playlists modes refill the queue when it drops to ≤ 3 remaining. (Auto-enabled the first time you start a Dynamic Playlists mode.) See also [Don't Stop The Music](#dont-stop-the-music). |
 | **Auto-name format** | How "Save current queue" names playlists when you don't type a name. See [below](#auto-name-strategies). |
