@@ -16,6 +16,12 @@ PLUGIN_AUDIOMUSEAI_TOKEN
 PLUGIN_AUDIOMUSEAI_TOKEN_DESC
 	EN	Bearer token for AudioMuse-AI. Generate one in the AudioMuse web UI under Administration. Leave blank if AUTH_ENABLED is false on the server. Surrounding whitespace is trimmed automatically.
 
+PLUGIN_AUDIOMUSEAI_SERVER_NAME
+	EN	Server Name
+
+PLUGIN_AUDIOMUSEAI_SERVER_NAME_DESC
+	EN	Display name of this server in AudioMuse-AI's multi-server setup (e.g. 'Lyrion'). Leave blank if multi-server is not used; the parameter will not be sent.
+
 PLUGIN_AUDIOMUSEAI_DEFAULT_COUNT
 	EN	Default number of tracks to return
 

@@ -59,6 +59,9 @@ sub initPlugin {
 	$prefs->init({
 		url                  => 'http://localhost:8000',
 		token                => '',
+		# AudioMuse-AI multi-server: this Lyrion server's display name in
+		# AudioMuse, sent as `server` on every API call. Blank = default.
+		server_name          => '',
 		default_count        => 25,
 		dstm_enabled         => 0,
 		# Auto-name strategy for 'Save current queue as playlist'.

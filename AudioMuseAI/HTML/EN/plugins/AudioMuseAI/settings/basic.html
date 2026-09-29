@@ -65,6 +65,14 @@
 </div>
 
 <div class="prefsLine">
+	<div class="prefsLabel">[% "PLUGIN_AUDIOMUSEAI_SERVER_NAME" | string %]</div>
+	<div class="prefsDesc">[% "PLUGIN_AUDIOMUSEAI_SERVER_NAME_DESC" | string %]</div>
+	<div class="prefsValue">
+		<input type="text" name="pref_server_name" value="[% prefs.server_name | html %]" size="30" />
+	</div>
+</div>
+
+<div class="prefsLine">
 	<div class="prefsLabel">[% "PLUGIN_AUDIOMUSEAI_DEFAULT_COUNT" | string %]</div>
 	<div class="prefsDesc">[% "PLUGIN_AUDIOMUSEAI_DEFAULT_COUNT_DESC" | string %]</div>
 	<div class="prefsValue">

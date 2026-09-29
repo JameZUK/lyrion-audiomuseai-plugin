@@ -19,6 +19,7 @@ use constant WEBUI => 0;
 
 require Plugins::AudioMuseAI::API;
 use Slim::Networking::SimpleAsyncHTTP;
+use Slim::Utils::Prefs;
 use JSON::PP qw(decode_json encode_json);
 
 my ($pass, $fail) = (0, 0);
@@ -210,6 +211,102 @@ sub fire_get {
     });
     check('cancel_task: URL embeds task id',
         $url =~ m{/api/cancel/tid-y$}, $url // '(no request)');
+}
+
+# ---------------------------------------------------------------------------
+# server_name — AudioMuse-AI multi-server selector. Blank = no `server`
+# param at all (the URL checks above run with it blank). Set = appended to
+# the query string of every GET *and* POST; JSON bodies stay untouched.
+#
+# Matches are wrapped in scalar(): in check()'s argument list a FAILED m//
+# returns an empty list, shifting $detail into $ok -- a silent PASS.
+# ---------------------------------------------------------------------------
+{
+    my $prefs = preferences('plugin.audiomuseai');
+
+    $prefs->set('server_name', '');
+    my $url = fire_get(sub {
+        Plugins::AudioMuseAI::API::similar_tracks('1', 10, sub {}, sub {});
+    });
+    check('server_name blank: no server param',
+        $url !~ /server=/, $url // '(no request)');
+
+    $prefs->set('server_name', 'Lyrion');
+    $url = fire_get(sub {
+        Plugins::AudioMuseAI::API::similar_tracks('1', 10, sub {}, sub {});
+    });
+    check('server_name: appended with & when the path has a query',
+        scalar($url =~ m{/api/similar_tracks\?item_id=1&n=10&eliminate_duplicates=true&server=Lyrion$}),
+        $url // '(no request)');
+
+    $url = fire_get(sub {
+        Plugins::AudioMuseAI::API::health(sub {}, sub {});
+    });
+    check('server_name: appended with ? when the path has no query',
+        scalar($url =~ m{/api/health\?server=Lyrion$}), $url // '(no request)');
+
+    my ($purl, $body) = fire_post(sub {
+        Plugins::AudioMuseAI::API::alchemy(['1'], [], 25, sub {}, sub {});
+    });
+    check('server_name: POST carries it in the query string',
+        scalar($purl =~ m{/api/alchemy\?server=Lyrion$}), $purl // '(no request)');
+    check('server_name: POST body left untouched',
+        !exists $body->{server}, encode_json($body // {}));
+
+    $prefs->set('server_name', '  Lyrion  ');
+    $url = fire_get(sub {
+        Plugins::AudioMuseAI::API::health(sub {}, sub {});
+    });
+    check('server_name: surrounding whitespace trimmed',
+        scalar($url =~ m{\?server=Lyrion$}), $url // '(no request)');
+
+    $prefs->set('server_name', 'My LMS & Co');
+    $url = fire_get(sub {
+        Plugins::AudioMuseAI::API::health(sub {}, sub {});
+    });
+    check('server_name: percent-encoded (space, &)',
+        scalar($url =~ m{\?server=My%20LMS%20%26%20Co$}), $url // '(no request)');
+
+    # A decoded character string, as Lyrion hands over settings-form input.
+    my $name = "Salon \x{c9}ric";
+    utf8::upgrade($name);
+    $prefs->set('server_name', $name);
+    $url = fire_get(sub {
+        Plugins::AudioMuseAI::API::health(sub {}, sub {});
+    });
+    check('server_name: non-ASCII percent-encoded as UTF-8',
+        scalar($url =~ m{\?server=Salon%20%C3%89ric$}), $url // '(no request)');
+
+    $prefs->set('server_name', "Ly\r\nrion");
+    $url = fire_get(sub {
+        Plugins::AudioMuseAI::API::health(sub {}, sub {});
+    });
+    check('server_name: embedded CR/LF can never reach the URL raw',
+        scalar($url =~ m{\?server=Ly%0D%0Arion$} && $url !~ /[\r\n]/),
+        $url // '(no request)');
+
+    # peek_active_tasks must read the same (server-scoped) cache key that
+    # active_tasks writes — and must not see another server's entry.
+    $prefs->set('server_name', 'Lyrion');
+    Slim::Networking::SimpleAsyncHTTP::reset_captures();
+    $Slim::Networking::SimpleAsyncHTTP::next_response_body =
+        '{"status":"PROGRESS","task_id":"t-peek"}';
+    Plugins::AudioMuseAI::API::active_tasks(sub {}, sub {});
+    $url = last_get() ? last_get()->{url} : undef;
+    check('server_name: active_tasks carries it',
+        scalar(defined $url && $url =~ m{/api/active_tasks\?server=Lyrion$}),
+        $url // '(no request)');
+    my $peek = Plugins::AudioMuseAI::API::peek_active_tasks();
+    check('server_name: peek_active_tasks hits the server-scoped cache',
+        ref($peek) eq 'HASH' && ($peek->{task_id} // '') eq 't-peek',
+        encode_json($peek // {}));
+
+    $prefs->set('server_name', 'Other');
+    $peek = Plugins::AudioMuseAI::API::peek_active_tasks();
+    check("server_name: peek_active_tasks ignores another server's entry",
+        !defined $peek, encode_json($peek // {}));
+
+    $prefs->set('server_name', '');
 }
 
 # ---------------------------------------------------------------------------
