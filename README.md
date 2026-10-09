@@ -4,7 +4,7 @@ A plugin for [Lyrion Music Server](https://lyrion.org) that brings [AudioMuse-AI
 
 > You already control playback from a Lyrion controller; this plugin makes AudioMuse-AI's playlists tap-reachable from the same place, instead of a separate web UI.
 
-Requires a running [AudioMuse-AI](https://github.com/NeptuneHub/AudioMuse-AI) instance.
+Requires a running [AudioMuse-AI](https://github.com/NeptuneHub/AudioMuse-AI) instance. Plugin **v0.6.0+ targets AudioMuse-AI v3.x** (tested against v3.6.3); the core features still work on v2.x, the newer ones (album creation, hyperbolic explore, sonic moods, lyric themes, concept steering) need v3.
 
 ## Install
 
@@ -30,7 +30,10 @@ Everything lives under **My Music → AudioMuse-AI**:
 - **Similar to current track** — builds a queue of songs that *sound* like whatever's playing right now.
 - **Similar (sound + lyrics)** — same idea, but it also matches on **lyrics**, not just the audio — great when the *feel* of the words matters.
 - **Sonic Fingerprint** — a personal mix drawn from your own listening history.
-- **Browse by Mood** — tap a mood (Energetic, Calm, Happy, Sad, Aggressive, Acoustic, Party) and get a matching playlist.
+- **Create an album around current track** — AudioMuse's *Album Creation*: a sequenced, CD-like album (opener to closer) built around the song, using sound *and* lyrics.
+- **Explore around current track** — the *hyperbolic* music map: close neighbours, **Roots** (broader, more foundational sound) or **Niche** (deeper, more specific cuts).
+- **Browse by Mood** — tap a mood (Energetic, Calm, Happy, Sad, Aggressive, Acoustic, Party) and get a matching playlist — or pick one of AudioMuse's own analysed **Sonic moods** (each mood split into flavours like *"Happy: indie, pop, rock"*).
+- **Lyric themes** — tap-only lyrics browsing: setting (urban, wilderness, transit...), emotional valence, social dynamic and more.
 - **Popular searches** — a list of community-popular prompts you can tap to try.
 
 ### Find music by artist or song
@@ -42,19 +45,21 @@ Everything lives under **My Music → AudioMuse-AI**:
 
 ### Describe what you want (type it)
 
-- **Instant Playlist** — type a vibe in plain words (*"low-energy late-night ambient"*) and get a matching queue.
-- **AI Chat Playlist** — ask in natural language; your AudioMuse server's AI turns it into a playlist.
+- **Instant Playlist** — type a vibe in plain words (*"low-energy late-night ambient"*) and get a matching queue. Add **concept steering** after a `|` to push it harder: *"jazz with viola | +viola x3, -drums"* (see [Usage](docs/USAGE.md#concept-steering)).
+- **AI Chat Playlist** — ask in natural language; your AudioMuse server's AI turns it into a playlist (sized to your track-count setting).
 - **Lyrics search** — find songs by a lyric phrase or theme.
-- **Find Path** — make a smooth, gradual transition playlist from one song to another.
+- **Create an album from a description** — *"jazz piano female voice"* becomes a sequenced album.
+- **Find Path** — a smooth transition playlist from the current song to another: a **sonic** path, a **lyrics + sound** path, or a **hyperbolic journey** that travels through the two songs' shared musical roots.
 
 > These need an on-screen keyboard — they work on the web UI, Material, iPeng, and Squeezer.
 
 ### Keep it going & blend
 
-- **Don't Stop The Music** — pick an AudioMuse mode in your player's audio settings and the queue refills itself as it runs low. Three flavours: *Similar to recent tracks*, *Mix by recent album* (broader), and *Sonic fingerprint*.
+- **Don't Stop The Music** — pick an AudioMuse mode in your player's audio settings and the queue refills itself as it runs low. Four flavours: *Similar to recent tracks*, *Lyrics + sound (SemGrove)*, *Mix by recent album* (broader), and *Sonic fingerprint*.
 - **Dynamic Playlists** — the same auto-extend, started from the plugin menu instead.
-- **Song Alchemy** — blend it your way: add songs you want it to lean toward, subtract ones to avoid, then generate.
-- **AudioMuse Radios** — one-tap rebuild of the saved "stations" you set up in the AudioMuse web UI.
+- **No repeats** — anything that adds to your queue (auto-extend, Don't Stop The Music, "Similar to current track") skips songs already in the queue or played recently on that player — including other copies of the same song (album vs. single vs. *(Live)* / *(Remastered)*).
+- **Song Alchemy** — blend it your way: add songs, whole artists, Lyrion playlists or saved anchors you want it to lean toward, subtract ones to avoid, then generate.
+- **Alchemy radios and anchors** — play any saved radio or anchor from the AudioMuse web UI straight into your queue, or rebuild the radio playlists.
 
 ### Save, manage & link out
 
@@ -64,7 +69,7 @@ Everything lives under **My Music → AudioMuse-AI**:
 
 ### Shortcut: the context menu
 
-Browse to **any** artist, track, or album the normal way and open its context menu (right-click on the web UI, long-press or the **⋮** icon on Material, 3-dot on iPeng) — you'll find **AudioMuse: similar artists / similar tracks / similar (sound + lyrics) / alchemy from this album** right there. It's often the fastest path on any controller.
+Browse to **any** artist, track, or album the normal way and open its context menu (right-click on the web UI, long-press or the **⋮** icon on Material, 3-dot on iPeng) — you'll find **AudioMuse: music like this artist / similar tracks / similar (sound + lyrics) / create an album around this track / niche deep cuts like this track / alchemy from this album** right there. It's often the fastest path on any controller.
 
 > On **Material**, these sit under **More** in the context menu — see [docs/USAGE.md](docs/USAGE.md#context-menu).
 

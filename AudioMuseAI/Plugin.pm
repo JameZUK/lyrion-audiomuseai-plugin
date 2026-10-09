@@ -24,7 +24,7 @@ use Slim::Menu::TrackInfo;
 use Slim::Menu::AlbumInfo;
 
 use constant {
-	VERSION             => '0.5.2',
+	VERSION             => '0.6.0',
 	HEALTHCHECK_DELAY   => 5,
 	# Cap search-result menus to keep the UI navigable on hardware
 	# controllers; AudioMuse can return hundreds of tracks for prolific
@@ -40,6 +40,13 @@ use constant {
 	# controllers (e.g. Squeezer on Android) don't choke on long
 	# responses. Server-side pagination handles deeper navigation.
 	BROWSE_PAGE_SIZE    => 50,
+	# Anti-repeat: how many recently played / queued tracks per player we
+	# remember (in memory) and refuse to queue again on append / extend.
+	HISTORY_MAX         => 1000,
+	# Tracks added per auto-extend (menu dynamic mode and native DSTM).
+	EXTEND_BATCH        => 10,
+	# Hard cap on any single AudioMuse request size.
+	FETCH_MAX           => 200,
 };
 
 my $log = Slim::Utils::Log->addLogCategory({
@@ -52,6 +59,23 @@ my $prefs = preferences('plugin.audiomuseai');
 
 # Tracks we registered timers for, so shutdownPlugin can clean up.
 my @_timers;
+
+# Per-player anti-repeat memory: client id => { order => [[id,key],...],
+# ids => {id=>n}, keys => {key=>n} }. See _remember / _exclusionSet.
+our %_history;   # (package var so tests can reset it)
+# Lyrion track id -> AudioMuse's id for the same song, for tracks AudioMuse
+# knows under a stale (pre-rescan) Lyrion id. Lets a renumbered track still
+# seed AudioMuse queries. See _localizeRows / _withAmSeed.
+my %_amIdFor;
+# Per-player tracks WE just added: client id => { id => [epoch, key] }.
+# LMS applies `playlistcontrol add` asynchronously, so for a moment a fresh
+# batch isn't in the queue yet; a second extend in that window (fast
+# skipping) would otherwise re-add the same tracks.
+our %_recentAdds;
+use constant RECENT_ADD_TTL => 600;
+# Per-player in-flight auto-extend (epoch), so back-to-back newsong events
+# can't fire two overlapping extends that both add the same tracks.
+my %_extending;
 
 sub initPlugin {
 	my $class = shift;
@@ -70,6 +94,11 @@ sub initPlugin {
 		# Auto-save the result of a Mood preset as a Lyrion playlist
 		# named after the mood label.
 		auto_save_mood       => 0,
+		# Auto-save an Album Creation result under its suggested name.
+		auto_save_album      => 0,
+		# AudioMuse multi-server (v3.0+): the AudioMuse name of this Lyrion
+		# server. Blank = AudioMuse's default server.
+		server_name          => '',
 	});
 
 	# One-time: normalize any pre-existing values that may have come in
@@ -226,6 +255,54 @@ sub initPlugin {
 		[0, 1, 1, \&_menuRadios]);
 	Slim::Control::Request::addDispatch(['audiomuseai', 'radios_run'],
 		[0, 1, 1, \&_radiosRun]);
+	Slim::Control::Request::addDispatch(['audiomuseai', 'anchor_play'],
+		[1, 1, 1, \&_anchorPlay]);
+
+	# --- AudioMuse v3.x features ---
+	# Album Creation (v3.6.2): from the current track, a picked track, or
+	# a typed description.
+	Slim::Control::Request::addDispatch(['audiomuseai', 'album_now'],
+		[1, 1, 1, \&_albumNow]);
+	Slim::Control::Request::addDispatch(['audiomuseai', 'album_track'],
+		[1, 1, 1, \&_albumTrack]);
+	Slim::Control::Request::addDispatch(['audiomuseai', 'album_text'],
+		[1, 1, 1, \&_albumText]);
+	# Hyperbolic Explorer (v3.3): similar / roots / niche.
+	Slim::Control::Request::addDispatch(['audiomuseai', 'menu_explore'],
+		[0, 1, 1, \&_menuExplore]);
+	Slim::Control::Request::addDispatch(['audiomuseai', 'explore_now'],
+		[1, 1, 1, \&_exploreNow]);
+	Slim::Control::Request::addDispatch(['audiomuseai', 'explore_track'],
+		[1, 1, 1, \&_exploreTrack]);
+	# Sonic mood clusters (mood centroids).
+	Slim::Control::Request::addDispatch(['audiomuseai', 'menu_sonic_moods'],
+		[0, 1, 1, \&_menuSonicMoods]);
+	Slim::Control::Request::addDispatch(['audiomuseai', 'menu_sonic_mood'],
+		[0, 1, 1, \&_menuSonicMood]);
+	Slim::Control::Request::addDispatch(['audiomuseai', 'sonic_mood'],
+		[1, 1, 1, \&_sonicMood]);
+	# Lyric themes (lyrics axes).
+	Slim::Control::Request::addDispatch(['audiomuseai', 'menu_lyric_themes'],
+		[0, 1, 1, \&_menuLyricThemes]);
+	Slim::Control::Request::addDispatch(['audiomuseai', 'lyric_theme'],
+		[1, 1, 1, \&_lyricTheme]);
+	# DCLAP steering vocabulary (reference list for Instant Playlist).
+	Slim::Control::Request::addDispatch(['audiomuseai', 'menu_concepts'],
+		[0, 1, 1, \&_menuConcepts]);
+	# Alchemy with artists / playlists / anchors.
+	Slim::Control::Request::addDispatch(['audiomuseai', 'alchemy_add_artist'],
+		[1, 1, 1, \&_alchemyAddArtist]);
+	Slim::Control::Request::addDispatch(['audiomuseai', 'alchemy_sub_artist'],
+		[1, 1, 1, \&_alchemySubArtist]);
+	Slim::Control::Request::addDispatch(['audiomuseai', 'alchemy_pick'],
+		[0, 1, 1, \&_alchemyPick]);
+	Slim::Control::Request::addDispatch(['audiomuseai', 'alchemy_add_ref'],
+		[1, 1, 1, \&_alchemyAddRef]);
+	# Extra dynamic (auto-extend) modes.
+	Slim::Control::Request::addDispatch(['audiomuseai', 'dyn_semgrove'],
+		[1, 1, 1, \&_dynamicSemGrove]);
+	Slim::Control::Request::addDispatch(['audiomuseai', 'dyn_album'],
+		[1, 1, 1, \&_dynamicAlbum]);
 
 	# Top-level menu under My Music. The 'icon' field is honoured by
 	# Material, default web UI, iPeng, and Squeezer (where it shows
@@ -269,6 +346,20 @@ sub initPlugin {
 			func  => \&_trackInfoSemGrove,
 		),
 	);
+	Slim::Menu::TrackInfo->registerInfoProvider(
+		audiomuseaiAlbumFromTrack => (
+			after => 'audiomuseaiSemGroveTrack',
+			func  => sub { _trackInfoItem(@_[0 .. 2], 'PLUGIN_AUDIOMUSEAI_INFO_ALBUM_TRACK',
+				['audiomuseai', 'album_track']) },
+		),
+	);
+	Slim::Menu::TrackInfo->registerInfoProvider(
+		audiomuseaiExploreTrack => (
+			after => 'audiomuseaiAlbumFromTrack',
+			func  => sub { _trackInfoItem(@_[0 .. 2], 'PLUGIN_AUDIOMUSEAI_INFO_EXPLORE_TRACK',
+				['audiomuseai', 'explore_track'], { mode => 'niche' }) },
+		),
+	);
 	Slim::Menu::AlbumInfo->registerInfoProvider(
 		audiomuseaiAlbumAlchemy => (
 			after => 'top',
@@ -290,6 +381,8 @@ sub initPlugin {
 			'PLUGIN_AUDIOMUSEAI_DSTM_ALBUM',       \&_dstmMixAlbum);
 		Slim::Plugin::DontStopTheMusic::Plugin->registerHandler(
 			'PLUGIN_AUDIOMUSEAI_DSTM_FINGERPRINT', \&_dstmMixFingerprint);
+		Slim::Plugin::DontStopTheMusic::Plugin->registerHandler(
+			'PLUGIN_AUDIOMUSEAI_DSTM_SEMGROVE',    \&_dstmMixSemGrove);
 		$log->info("registered Don't Stop The Music providers");
 	}
 	else {
@@ -386,6 +479,27 @@ sub _trackInfoSemGrove {
 	};
 }
 
+# Generic "AudioMuse: ... from this track" info-menu entry.
+sub _trackInfoItem {
+	my ($client, $url, $track, $strKey, $cmd, $extra) = @_;
+	return unless $track && ref($track);
+	my $tid = eval { $track->id };
+	return unless defined $tid && $tid =~ /\A\d+\z/;
+	return {
+		type => 'redirect',
+		name => string($strKey),
+		jive => {
+			actions => {
+				go => {
+					cmd    => $cmd,
+					player => 0,
+					params => { %{ $extra || {} }, track_id => "$tid" },
+				},
+			},
+		},
+	};
+}
+
 sub _albumInfoAlchemy {
 	my ($client, $url, $album) = @_;
 	return unless $album;
@@ -463,8 +577,16 @@ sub _topMenu {
 		['audiomuseai', 'semgrove_now'], 1);
 	push @menu, _actionItem('PLUGIN_AUDIOMUSEAI_MENU_FINGERPRINT',
 		['audiomuseai', 'sonic_fp'], 1);
+	# Album Creation (v3.6.2): a sequenced album around the current track.
+	push @menu, _actionItem('PLUGIN_AUDIOMUSEAI_MENU_ALBUM_NOW',
+		['audiomuseai', 'album_now']);
+	# Hyperbolic Explorer (v3.3): similar / roots / niche around it.
+	push @menu, _submenuItem('PLUGIN_AUDIOMUSEAI_MENU_EXPLORE',
+		['audiomuseai', 'menu_explore']);
 	push @menu, _submenuItem('PLUGIN_AUDIOMUSEAI_MENU_MOOD',
 		['audiomuseai', 'menu_mood']);
+	push @menu, _submenuItem('PLUGIN_AUDIOMUSEAI_MENU_LYRIC_THEMES',
+		['audiomuseai', 'menu_lyric_themes']);
 	# Community-popular CLAP search prompts — sits right after Mood
 	# because it's the same kind of "tap a phrase, get a playlist" UX.
 	push @menu, _submenuItem('PLUGIN_AUDIOMUSEAI_MENU_TOP_QUERIES',
@@ -512,13 +634,15 @@ sub _topMenu {
 	push @menu, _textInputItem('PLUGIN_AUDIOMUSEAI_MENU_LYRICS',
 		'PLUGIN_AUDIOMUSEAI_PROMPT_LYRICS',
 		['audiomuseai', 'lyrics_search'], 'prompt');
+	push @menu, _textInputItem('PLUGIN_AUDIOMUSEAI_MENU_ALBUM_TEXT',
+		'PLUGIN_AUDIOMUSEAI_PROMPT_ALBUM',
+		['audiomuseai', 'album_text'], 'prompt');
 	# findpath_search returns a track-pick menu (not a notification),
 	# so it should NOT have nextWindow:refresh — that would close the
 	# pushed picker.
-	push @menu, _textInputItem('PLUGIN_AUDIOMUSEAI_MENU_FINDPATH',
-		'PLUGIN_AUDIOMUSEAI_FINDPATH_PROMPT',
-		['audiomuseai', 'findpath_search'], 'artist',
-		{ push => 1 });
+	# Find path: sonic / lyrics / hyperbolic journey, each a text box.
+	push @menu, _submenuItem('PLUGIN_AUDIOMUSEAI_MENU_FINDPATH',
+		['audiomuseai', 'menu_findpath']);
 
 	# --- Tier 6: status / link-out ---
 	push @menu, _submenuItem('PLUGIN_AUDIOMUSEAI_MENU_STATUS',
@@ -551,7 +675,7 @@ sub _statusHeaderItem {
 
 	my $state = $data->{status} // '';
 	# Only show the header when something interesting is happening.
-	return undef unless $state =~ /^(PROGRESS|STARTED|PENDING)$/i;
+	return undef unless $state =~ /^(?:RUNNING|NEW|PROGRESS|STARTED|PENDING|QUEUED)$/i;
 
 	my $type     = $data->{task_type}             // 'task';
 	my $progress = $data->{progress};
@@ -598,6 +722,11 @@ sub _menuMood {
 	push @menu, _textInputItem('PLUGIN_AUDIOMUSEAI_MOOD_CUSTOM',
 		'PLUGIN_AUDIOMUSEAI_PROMPT_INSTANT',
 		['audiomuseai', 'instant'], 'prompt');
+	# AudioMuse's own mood clusters (analysed, not text-prompted).
+	push @menu, _submenuItem('PLUGIN_AUDIOMUSEAI_MENU_SONIC_MOODS',
+		['audiomuseai', 'menu_sonic_moods']);
+	push @menu, _submenuItem('PLUGIN_AUDIOMUSEAI_MENU_CONCEPTS',
+		['audiomuseai', 'menu_concepts']);
 
 	_emit($request, \@menu);
 }
@@ -611,6 +740,16 @@ sub _menuAlchemy {
 			['audiomuseai', 'alchemy_add_now'], 1),
 		_actionItem('PLUGIN_AUDIOMUSEAI_ALCHEMY_SUB_NOW',
 			['audiomuseai', 'alchemy_sub_now'], 1),
+		# v2.3+/v3.x alchemy also blends whole artists, saved anchors and
+		# playlists, not just songs.
+		_actionItem('PLUGIN_AUDIOMUSEAI_ALCHEMY_ADD_ARTIST',
+			['audiomuseai', 'alchemy_add_artist']),
+		_actionItem('PLUGIN_AUDIOMUSEAI_ALCHEMY_SUB_ARTIST',
+			['audiomuseai', 'alchemy_sub_artist']),
+		_navItem('PLUGIN_AUDIOMUSEAI_ALCHEMY_ADD_PLAYLIST',
+			['audiomuseai', 'alchemy_pick'], { kind => 'playlist' }),
+		_navItem('PLUGIN_AUDIOMUSEAI_ALCHEMY_ADD_ANCHOR',
+			['audiomuseai', 'alchemy_pick'], { kind => 'anchor' }),
 		_actionItem('PLUGIN_AUDIOMUSEAI_ALCHEMY_RESET',
 			['audiomuseai', 'alchemy_reset'], 1),
 		_actionItem('PLUGIN_AUDIOMUSEAI_ALCHEMY_GENERATE',
@@ -620,12 +759,18 @@ sub _menuAlchemy {
 
 sub _menuFindPath {
 	my $request = shift;
-	_emit($request, [
-		_textInputItem('PLUGIN_AUDIOMUSEAI_FINDPATH_FROM_NOW',
+	# One text box per path method; each returns a destination pick-list.
+	_emit($request, [ map {
+		my ($key, $method) = @$_;
+		_textInputItem($key,
 			'PLUGIN_AUDIOMUSEAI_FINDPATH_PROMPT',
 			['audiomuseai', 'findpath_search'], 'artist',
-			{ push => 1 }),
-	]);
+			{ push => 1, params => { method => $method } });
+	} (
+		['PLUGIN_AUDIOMUSEAI_FINDPATH_SONIC',      'sonic'],
+		['PLUGIN_AUDIOMUSEAI_FINDPATH_LYRICS',     'lyrics'],
+		['PLUGIN_AUDIOMUSEAI_FINDPATH_HYPERBOLIC', 'hyperbolic'],
+	) ], 'PLUGIN_AUDIOMUSEAI_MENU_FINDPATH');
 }
 
 sub _menuDynamic {
@@ -633,28 +778,26 @@ sub _menuDynamic {
 	my $client  = $request->client;
 	my $active  = $client ? ($prefs->client($client)->get('dstm_active') // '') : '';
 
-	# Prefix the currently-active mode with a tick so the user can see
+	# Prefix the currently-active mode with a marker so the user can see
 	# what's running and find 'Stop auto-extend' easily. Per-player.
 	# ASCII marker — non-ASCII glyphs reach some controllers as Latin-1
 	# mojibake over JSON-RPC (this file has no `use utf8`); keep emitted
-	# strings 7-bit. See issue #1 (the em-dash showed up as 'â').
-	my $tick = '* ';
-	my $sim_label = string('PLUGIN_AUDIOMUSEAI_DYNAMIC_SIMILAR');
-	my $fp_label  = string('PLUGIN_AUDIOMUSEAI_DYNAMIC_FINGERPRINT');
-	$sim_label = $tick . $sim_label if $active eq 'similar';
-	$fp_label  = $tick . $fp_label  if $active eq 'fingerprint';
-
+	# strings 7-bit. See issue #1 (the em-dash showed up as 'a').
+	my @modes = (
+		['similar',     'PLUGIN_AUDIOMUSEAI_DYNAMIC_SIMILAR',     'dyn_similar'],
+		['semgrove',    'PLUGIN_AUDIOMUSEAI_DYNAMIC_SEMGROVE',    'dyn_semgrove'],
+		['album',       'PLUGIN_AUDIOMUSEAI_DYNAMIC_ALBUM',       'dyn_album'],
+		['fingerprint', 'PLUGIN_AUDIOMUSEAI_DYNAMIC_FINGERPRINT', 'dyn_fingerprint'],
+	);
 	_emit($request, [
-		{
-			text    => $sim_label,
-			actions => { go => { cmd => ['audiomuseai', 'dyn_similar'], player => 0 } },
-			nextWindow => 'refresh',
-		},
-		{
-			text    => $fp_label,
-			actions => { go => { cmd => ['audiomuseai', 'dyn_fingerprint'], player => 0 } },
-			nextWindow => 'refresh',
-		},
+		(map {
+			my ($mode, $key, $cmd) = @$_;
+			{
+				text    => ($active eq $mode ? '* ' : '') . string($key),
+				actions => { go => { cmd => ['audiomuseai', $cmd], player => 0 } },
+				nextWindow => 'refresh',
+			};
+		} @modes),
 		_actionItem('PLUGIN_AUDIOMUSEAI_DYNAMIC_STOP',
 			['audiomuseai', 'dyn_stop']),
 	]);
@@ -1007,7 +1150,7 @@ sub _cancelActive {
 			my $data = shift;
 			my $tid  = (ref($data) eq 'HASH') ? $data->{task_id} : undef;
 			my $st   = (ref($data) eq 'HASH') ? ($data->{status} // '') : '';
-			unless ($tid && $st =~ /^(PROGRESS|STARTED|PENDING)$/i) {
+			unless ($tid && $st =~ /^(?:RUNNING|NEW|PROGRESS|STARTED|PENDING|QUEUED)$/i) {
 				return _notify($request, string('PLUGIN_AUDIOMUSEAI_CANCEL_NONE'));
 			}
 			$log->info("cancel_active: cancelling task $tid (status=$st)");
@@ -1024,9 +1167,9 @@ sub _cancelActive {
 
 # ----- Alchemy radios -------------------------------------------------------
 
-# List the user's saved radios, with a "run all" action on top. There's no
-# per-radio "play now" endpoint — running (re)builds one Lyrion playlist per
-# enabled radio — so the radio rows themselves are informational.
+# Saved radios and anchors. Tapping a radio or anchor plays it now (songs
+# nearest the anchor, via similar_tracks?anchor_id=); "Rebuild" asks
+# AudioMuse to (re)write one Lyrion playlist per enabled radio.
 sub _menuRadios {
 	my $request = shift;
 	$request->setStatusProcessing;
@@ -1035,29 +1178,53 @@ sub _menuRadios {
 			my $data   = shift;
 			my $radios = (ref($data) eq 'HASH' ? $data->{radios} : undef) || [];
 			$radios = [] unless ref($radios) eq 'ARRAY';
-
-			my @menu = (
-				_actionItem('PLUGIN_AUDIOMUSEAI_RADIOS_RUN',
-					['audiomuseai', 'radios_run']),
+			Plugins::AudioMuseAI::API::list_anchors(
+				sub { _emitRadios($request, $radios, shift) },
+				sub { _emitRadios($request, $radios, {}) },
 			);
-			if (@$radios) {
-				push @menu, { text => string('PLUGIN_AUDIOMUSEAI_RADIOS_HEADER') };
-				for my $r (@$radios) {
-					next unless ref($r) eq 'HASH';
-					my $name  = _safeText($r->{name} // '?');
-					my $label = '  ' . ($r->{enabled} ? '' : '(off) ') . $name;
-					$label .= sprintf(' (%d tracks)', $r->{n_results})
-						if defined $r->{n_results} && $r->{n_results} ne '';
-					push @menu, { text => $label };
-				}
-			}
-			else {
-				push @menu, { text => string('PLUGIN_AUDIOMUSEAI_RADIOS_NONE') };
-			}
-			_emit($request, \@menu, 'PLUGIN_AUDIOMUSEAI_MENU_RADIOS');
 		},
 		sub { _notifyError($request, shift) },
 	);
+}
+
+sub _emitRadios {
+	my ($request, $radios, $adata) = @_;
+	my $anchors = (ref($adata) eq 'HASH' ? $adata->{anchors} : undef) || [];
+	$anchors = [] unless ref($anchors) eq 'ARRAY';
+
+	my @menu;
+	my %radioAnchor;
+	for my $r (@$radios) {
+		next unless ref($r) eq 'HASH' && defined $r->{anchor_id};
+		$radioAnchor{ $r->{anchor_id} } = 1;
+		my $name  = _safeText($r->{name} // '?');
+		my $label = ($r->{enabled} ? '' : '(off) ') . $name;
+		$label .= sprintf(' (%d tracks)', $r->{n_results})
+			if defined $r->{n_results} && $r->{n_results} =~ /\A\d+\z/;
+		my %params = (anchor_id => "$r->{anchor_id}", name => $name);
+		$params{n} = "$r->{n_results}" if defined $r->{n_results} && $r->{n_results} =~ /\A\d+\z/;
+		push @menu, {
+			text    => string('PLUGIN_AUDIOMUSEAI_RADIO_PLAY') . ' ' . $label,
+			actions => { go => { cmd => ['audiomuseai', 'anchor_play'], player => 0,
+				params => \%params } },
+			nextWindow => 'refresh',
+		};
+	}
+	for my $an (@$anchors) {
+		next unless ref($an) eq 'HASH' && defined $an->{id};
+		next if $radioAnchor{ $an->{id} };   # already listed as a radio
+		my $name = _safeText($an->{name} // '?');
+		push @menu, {
+			text    => string('PLUGIN_AUDIOMUSEAI_ANCHOR_PLAY') . ' ' . $name,
+			actions => { go => { cmd => ['audiomuseai', 'anchor_play'], player => 0,
+				params => { anchor_id => "$an->{id}", name => $name } } },
+			nextWindow => 'refresh',
+		};
+	}
+	push @menu, { text => string('PLUGIN_AUDIOMUSEAI_RADIOS_NONE') } unless @menu;
+	push @menu, _actionItem('PLUGIN_AUDIOMUSEAI_RADIOS_RUN', ['audiomuseai', 'radios_run'])
+		if @$radios;
+	_emit($request, \@menu, 'PLUGIN_AUDIOMUSEAI_MENU_RADIOS');
 }
 
 sub _radiosRun {
@@ -1103,9 +1270,12 @@ sub _librarySummary {
 			# string the JS can split — keeps the response shape simple).
 			my $mc = $c->{moods_coverage};
 			if (ref($mc) eq 'ARRAY') {
-				my @top = sort { ($b->{score} // 0) <=> ($a->{score} // 0) } @$mc;
+				# v3.x reports `count` (songs per mood); older builds `score`.
+				my $v = sub { $_[0]{count} // $_[0]{score} // 0 };
+				my @top = sort { $v->($b) <=> $v->($a) }
+					grep { ref($_) eq 'HASH' } @$mc;
 				my @three = map {
-					sprintf('%s=%d', $_->{label} // '?', int($_->{score} // 0))
+					sprintf('%s=%d', $_->{label} // '?', int($v->($_)))
 				} @top[0 .. ($#top > 2 ? 2 : $#top)];
 				$request->addResult('top_moods', join(';', @three));
 			} else {
@@ -1134,12 +1304,7 @@ sub _similarNow {
 		return _notify($request, string('PLUGIN_AUDIOMUSEAI_NOTHING_PLAYING'));
 	}
 	$log->info('similar_now: track=' . $song->id . ' client=' . $client->id);
-	$request->setStatusProcessing;
-	Plugins::AudioMuseAI::API::similar_tracks(
-		$song->id, _count($client),
-		sub { _queueResults($request, $client, shift, 0) },
-		sub { _notifyError($request, shift) },
-	);
+	_appendSimilar($request, $client, '' . $song->id);
 }
 
 sub _similarSongSearch {
@@ -1182,13 +1347,8 @@ sub _similarTrack {
 	my $request = shift;
 	my $client  = $request->client or return $request->setStatusBadParams;
 	my $tid     = $request->getParam('track_id');
-	return $request->setStatusBadParams unless defined $tid && length $tid;
-	$request->setStatusProcessing;
-	Plugins::AudioMuseAI::API::similar_tracks(
-		$tid, _count($client),
-		sub { _queueResults($request, $client, shift, 0) },
-		sub { _notifyError($request, shift) },
-	);
+	return $request->setStatusBadParams unless defined $tid && $tid =~ /\A\d+\z/;
+	_appendSimilar($request, $client, $tid);
 }
 
 # "Music like this artist" from a single selection (discussion #686 —
@@ -1252,7 +1412,7 @@ sub _similarArtistBlend {
 	# centroid only needs a representative sample.
 	@seeds = @seeds[0 .. (MAX_PICK_RESULTS - 1)] if @seeds > MAX_PICK_RESULTS;
 	Plugins::AudioMuseAI::API::alchemy(
-		\@seeds, [], _count($client),
+		\@seeds, [], _oversample(_count($client)),
 		sub { _queueBlend($request, $client, shift, \%exclude, 0, $artist) },
 		sub { _notifyError($request, shift) },
 	);
@@ -1289,7 +1449,7 @@ sub _sonicFingerprint {
 	my $client  = $request->client or return $request->setStatusBadParams;
 	$request->setStatusProcessing;
 	Plugins::AudioMuseAI::API::sonic_fingerprint(
-		_count($client),
+		_loadN($client),
 		sub { _queueResults($request, $client, shift, 1) },
 		sub { _notifyError($request, shift) },
 	);
@@ -1306,8 +1466,9 @@ sub _semGroveNow {
 	}
 	$log->info('semgrove_now: track=' . $song->id . ' client=' . $client->id);
 	$request->setStatusProcessing;
-	Plugins::AudioMuseAI::API::sem_grove(
-		$song->id, _count($client),
+	my $n = _loadN($client);
+	_withAmSeed('' . $song->id,
+		sub { Plugins::AudioMuseAI::API::sem_grove($_[0], $n, $_[1], $_[2]) },
 		sub { _semGroveQueue($request, $client, shift) },
 		sub { _notifyError($request, shift) },
 	);
@@ -1319,8 +1480,9 @@ sub _semGroveTrack {
 	my $tid     = $request->getParam('track_id');
 	return $request->setStatusBadParams unless defined $tid && length $tid;
 	$request->setStatusProcessing;
-	Plugins::AudioMuseAI::API::sem_grove(
-		$tid, _count($client),
+	my $n = _loadN($client);
+	_withAmSeed($tid,
+		sub { Plugins::AudioMuseAI::API::sem_grove($_[0], $n, $_[1], $_[2]) },
 		sub { _semGroveQueue($request, $client, shift) },
 		sub { _notifyError($request, shift) },
 	);
@@ -1347,11 +1509,105 @@ sub _instantPlaylist {
 	$prefs->client($client)->set('last_instant_prompt', $prompt);
 	$log->info("instant playlist: " . _logSafe($prompt));
 	$request->setStatusProcessing;
-	Plugins::AudioMuseAI::API::clap_search(
-		$prompt, _count($client),
+
+	my ($query, $steer) = _parseSteering($prompt);
+	return _notify($request, string('PLUGIN_AUDIOMUSEAI_EMPTY_INPUT')) unless length $query;
+	my $run = sub {
+		my $steering = shift;
+		Plugins::AudioMuseAI::API::clap_search(
+			$query, _loadN($client),
+			sub {
+				_queueResults($request, $client, shift, 1);
+				_maybeAutoSave($client, 'instant', $prompt) if $prefs->get('auto_save_instant');
+			},
+			sub { _notifyError($request, shift) },
+			$steering,
+		);
+	};
+	return $run->([]) unless @$steer;
+
+	# Concept steering: terms must come from the server's validated
+	# vocabulary — check first so a typo gets a clear message, not a 400.
+	Plugins::AudioMuseAI::API::clap_concepts(
 		sub {
-			_queueResults($request, $client, shift, 1);
-			_maybeAutoSave($client, 'instant', $prompt) if $prefs->get('auto_save_instant');
+			my %known = map { lc($_) => 1 } _conceptTerms(shift);
+			my @bad = grep { !$known{ $_->{term} } } @$steer;
+			if (@bad) {
+				return _notify($request, sprintf(string('PLUGIN_AUDIOMUSEAI_STEER_UNKNOWN'),
+					join(', ', map { $_->{term} } @bad)));
+			}
+			$run->($steer);
+		},
+		sub { _notifyError($request, shift) },
+	);
+}
+
+# Instant Playlist concept steering (AudioMuse v3.5.1 "Concept Weight").
+# Syntax: everything after a '|' is a comma-separated list of concepts:
+#   "jazz with viola | +viola x3, -drums, piano"
+# '+' (default) = more, '-' = less, "xN" / "*N" = weight (server snaps it to
+# 1/2/3/5/10). Returns ($query, [ { term, direction, weight? }, ... ]).
+sub _parseSteering {
+	my $prompt = shift // '';
+	my ($q, $rest) = split /\s*\|\s*/, $prompt, 2;
+	$q = _trim($q // '');
+	return ($q, []) unless defined $rest && length _trim($rest);
+	my @steer;
+	for my $tok (split /\s*,\s*/, $rest) {
+		$tok = _trim($tok);
+		next unless length $tok;
+		my $dir = 'more';
+		$dir = 'less' if $tok =~ s/\A-\s*//;
+		$tok =~ s/\A\+\s*//;
+		my $w;
+		$w = $1 if $tok =~ s/\s*[x*]\s*(\d+(?:\.\d+)?)\s*\z//i;
+		$tok = lc _trim($tok);
+		next unless length $tok;
+		push @steer, { term => $tok, direction => $dir,
+			(defined $w ? (weight => $w + 0) : ()) };
+	}
+	@steer = @steer[0 .. 9] if @steer > 10;   # server max_terms
+	return ($q, \@steer);
+}
+
+sub _conceptTerms {
+	my $data = shift;
+	return () unless ref($data) eq 'HASH' && ref($data->{categories}) eq 'ARRAY';
+	return map { $_->{term} }
+		grep { ref($_) eq 'HASH' && defined $_->{term} }
+		map { ref($_->{terms}) eq 'ARRAY' ? @{ $_->{terms} } : () }
+		grep { ref($_) eq 'HASH' } @{ $data->{categories} };
+}
+
+# Browse the steering vocabulary (read-only reference for the syntax above).
+sub _menuConcepts {
+	my $request = shift;
+	my $cat = $request->getParam('category') // '';
+	$request->setStatusProcessing;
+	Plugins::AudioMuseAI::API::clap_concepts(
+		sub {
+			my $data = shift;
+			my @items;
+			my $cats = ref($data) eq 'HASH' && ref($data->{categories}) eq 'ARRAY' ? $data->{categories} : [];
+			if (length $cat) {
+				my ($c) = grep { ref($_) eq 'HASH' && ($_->{category} // '') eq $cat } @$cats;
+				push @items, map { { text => _safeText($_->{term}) } }
+					grep { ref($_) eq 'HASH' && defined $_->{term} }
+					@{ ($c && ref($c->{terms}) eq 'ARRAY') ? $c->{terms} : [] };
+			}
+			else {
+				push @items, { text => string('PLUGIN_AUDIOMUSEAI_STEER_HELP') };
+				for my $c (@$cats) {
+					next unless ref($c) eq 'HASH' && defined $c->{category};
+					push @items, {
+						text    => _safeText($c->{label} // $c->{category}),
+						actions => { go => { cmd => ['audiomuseai', 'menu_concepts'], player => 0,
+							params => { category => $c->{category} } } },
+					};
+				}
+			}
+			push @items, { text => string('PLUGIN_AUDIOMUSEAI_NO_RESULTS') } unless @items;
+			_emit($request, \@items, 'PLUGIN_AUDIOMUSEAI_MENU_CONCEPTS');
 		},
 		sub { _notifyError($request, shift) },
 	);
@@ -1385,7 +1641,7 @@ sub _chatPlaylist {
 	$request->setStatusProcessing;
 
 	Plugins::AudioMuseAI::API::chat_playlist(
-		$prompt,
+		$prompt, _count($client),
 		sub {
 			my $data = shift;
 			my $resp = (ref($data) eq 'HASH') ? $data->{response} : undef;
@@ -1438,7 +1694,7 @@ sub _lyricsSearch {
 	$log->info('lyrics search: ' . _logSafe($prompt));
 	$request->setStatusProcessing;
 	Plugins::AudioMuseAI::API::lyrics_search(
-		$prompt, _count($client),
+		$prompt, _loadN($client),
 		sub {
 			_queueResults($request, $client, shift, 1);
 			# Auto-save reuses the Instant Playlist toggle — both are
@@ -1478,11 +1734,313 @@ sub _moodPlaylist {
 	$log->info("mood playlist: " . _logSafe($prompt) . " (label=" . _logSafe($label) . ")");
 	$request->setStatusProcessing;
 	Plugins::AudioMuseAI::API::clap_search(
-		$prompt, _count($client),
+		$prompt, _loadN($client),
 		sub {
 			_queueResults($request, $client, shift, 1);
 			_maybeAutoSave($client, 'mood', $label) if $prefs->get('auto_save_mood');
 		},
+		sub { _notifyError($request, shift) },
+	);
+}
+
+# ----- Album Creation (AudioMuse v3.6.2) ------------------------------------
+# A sequenced, CD-like album (opener -> closer) built from one seed song or a
+# few words, using the MusiCNN + DCLAP + lyrics indexes together. Needs all
+# three analyses on the server; it answers 400 otherwise.
+
+sub _albumNow {
+	my $request = shift;
+	my $client  = $request->client or return $request->setStatusBadParams;
+	my $song    = Slim::Player::Playlist::song($client);
+	unless ($song && $song->id) {
+		return _notify($request, string('PLUGIN_AUDIOMUSEAI_NOTHING_PLAYING'));
+	}
+	_albumCreate($request, $client, 'song', '' . $song->id);
+}
+
+sub _albumTrack {
+	my $request = shift;
+	my $client  = $request->client or return $request->setStatusBadParams;
+	my $tid     = $request->getParam('track_id');
+	return $request->setStatusBadParams unless defined $tid && $tid =~ /\A\d+\z/;
+	_albumCreate($request, $client, 'song', $tid);
+}
+
+sub _albumText {
+	my $request = shift;
+	my $client  = $request->client or return $request->setStatusBadParams;
+	my $prompt  = _trim($request->getParam('prompt') // '');
+	return _notify($request, string('PLUGIN_AUDIOMUSEAI_EMPTY_INPUT')) unless length $prompt;
+	_recordRecentPrompt($client, $prompt);
+	_albumCreate($request, $client, 'text', $prompt);
+}
+
+sub _albumCreate {
+	my ($request, $client, $type, $seed) = @_;
+	$log->info("album creation ($type): " . _logSafe($seed));
+	$request->setStatusProcessing;
+	my $call = $type eq 'song'
+		? sub { my ($ok, $err) = @_; _withAmSeed($seed,
+			sub { Plugins::AudioMuseAI::API::album_creation('song', @_) }, $ok, $err) }
+		: sub { Plugins::AudioMuseAI::API::album_creation('text', $seed, @_) };
+	$call->(
+		sub {
+			my $data   = shift;
+			my $tracks = ref($data) eq 'HASH' ? $data->{tracks} : undef;
+			unless (ref($tracks) eq 'ARRAY' && @$tracks) {
+				return _notify($request, string('PLUGIN_AUDIOMUSEAI_NO_RESULTS'));
+			}
+			my $name = _safeText($data->{suggested_name} // $data->{name} // '');
+			# An album keeps its running order and its own length.
+			_queueResults($request, $client, $tracks, 1,
+				{ want => scalar @$tracks });
+			if (length $name) {
+				$prefs->client($client)->set('last_instant_prompt', $name);
+				_maybeAutoSave($client, 'album', $name) if $prefs->get('auto_save_album');
+			}
+		},
+		sub {
+			my $err = shift // '';
+			# 400 = feature disabled (needs lyrics + DCLAP) or bad seed;
+			# 404 = seed not analysed / too few neighbours.
+			return _notify($request, string('PLUGIN_AUDIOMUSEAI_ALBUM_UNAVAILABLE'))
+				if $err =~ /\b400\b/;
+			return _notify($request, string('PLUGIN_AUDIOMUSEAI_ALBUM_NO_SEED'))
+				if $err =~ /\b404\b/;
+			_notifyError($request, $err);
+		},
+	);
+}
+
+# ----- Hyperbolic Explorer (AudioMuse v3.3+) ----------------------------------
+# Around a seed song: similar (nearest in the hyperbolic map), roots (more
+# general / foundational neighbourhood) or niche (more specific, deeper
+# cuts). Needs the hyperbolic index (built by an analysis run on v3.3+).
+
+sub _exploreMode {
+	my $m = shift // 'similar';
+	return grep({ $_ eq $m } qw(similar roots niche)) ? $m : 'similar';
+}
+
+sub _exploreNow {
+	my $request = shift;
+	my $client  = $request->client or return $request->setStatusBadParams;
+	my $song    = Slim::Player::Playlist::song($client);
+	unless ($song && $song->id) {
+		return _notify($request, string('PLUGIN_AUDIOMUSEAI_NOTHING_PLAYING'));
+	}
+	_exploreRun($request, $client, '' . $song->id, _exploreMode($request->getParam('mode')));
+}
+
+sub _exploreTrack {
+	my $request = shift;
+	my $client  = $request->client or return $request->setStatusBadParams;
+	my $tid     = $request->getParam('track_id');
+	return $request->setStatusBadParams unless defined $tid && $tid =~ /\A\d+\z/;
+	_exploreRun($request, $client, $tid, _exploreMode($request->getParam('mode')));
+}
+
+sub _exploreRun {
+	my ($request, $client, $seed, $mode) = @_;
+	$log->info("hyperbolic explore ($mode) from $seed on " . $client->id);
+	$request->setStatusProcessing;
+	my $n = _loadN($client);
+	_withAmSeed($seed,
+		sub { Plugins::AudioMuseAI::API::hyperbolic_similar($_[0], $mode, $n, $_[1], $_[2]) },
+		sub { _queueResults($request, $client, shift, 1, { exclude => { $seed => 1 } }) },
+		sub {
+			my $err = shift // '';
+			return _notify($request, string('PLUGIN_AUDIOMUSEAI_EXPLORE_UNAVAILABLE'))
+				if $err =~ /\b400\b/;
+			_notifyError($request, $err);
+		},
+	);
+}
+
+sub _menuExplore {
+	my $request = shift;
+	_emit($request, [ map {
+		my ($key, $mode) = @$_;
+		{
+			text    => string($key),
+			actions => { go => { cmd => ['audiomuseai', 'explore_now'], player => 0,
+				params => { mode => $mode } } },
+			nextWindow => 'refresh',
+		};
+	} (
+		['PLUGIN_AUDIOMUSEAI_EXPLORE_SIMILAR', 'similar'],
+		['PLUGIN_AUDIOMUSEAI_EXPLORE_ROOTS',   'roots'],
+		['PLUGIN_AUDIOMUSEAI_EXPLORE_NICHE',   'niche'],
+	) ], 'PLUGIN_AUDIOMUSEAI_MENU_EXPLORE');
+}
+
+# ----- Sonic moods (AudioMuse mood centroids) ---------------------------------
+# AudioMuse clusters each mood (happy, sad, relaxed, ...) into several sonic
+# "flavours", each described by its top tags. Tap-only: mood -> flavour.
+
+sub _menuSonicMoods {
+	my $request = shift;
+	$request->setStatusProcessing;
+	Plugins::AudioMuseAI::API::mood_centroids(
+		sub {
+			my $data = shift;
+			my @items;
+			if (ref($data) eq 'HASH') {
+				for my $mood (sort keys %$data) {
+					next unless ref($data->{$mood}) eq 'ARRAY' && @{ $data->{$mood} };
+					push @items, {
+						text    => sprintf('%s (%d)', ucfirst($mood), scalar @{ $data->{$mood} }),
+						actions => { go => { cmd => ['audiomuseai', 'menu_sonic_mood'],
+							player => 0, params => { mood => $mood } } },
+					};
+				}
+			}
+			push @items, { text => string('PLUGIN_AUDIOMUSEAI_NO_RESULTS') } unless @items;
+			_emit($request, \@items, 'PLUGIN_AUDIOMUSEAI_MENU_SONIC_MOODS');
+		},
+		sub { _notifyError($request, shift) },
+	);
+}
+
+sub _menuSonicMood {
+	my $request = shift;
+	my $mood = _trim($request->getParam('mood') // '');
+	return $request->setStatusBadParams unless $mood =~ /\A[\w-]+\z/;
+	$request->setStatusProcessing;
+	Plugins::AudioMuseAI::API::mood_centroids(
+		sub {
+			my $data = shift;
+			my $list = ref($data) eq 'HASH' ? $data->{$mood} : undef;
+			my @items;
+			for my $c (ref($list) eq 'ARRAY' ? @$list : ()) {
+				next unless ref($c) eq 'HASH' && defined $c->{index};
+				my @tags = ref($c->{top_tags}) eq 'ARRAY' ? @{ $c->{top_tags} } : ();
+				@tags = @tags[0 .. 2] if @tags > 3;
+				my $label = ucfirst($mood) . ': ' . (@tags ? join(', ', @tags) : '#' . ($c->{index} + 1));
+				push @items, {
+					text    => _safeText($label),
+					actions => { go => { cmd => ['audiomuseai', 'sonic_mood'], player => 0,
+						params => { mood => $mood, index => $c->{index}, mood_label => _safeText($label) } } },
+					nextWindow => 'refresh',
+				};
+			}
+			push @items, { text => string('PLUGIN_AUDIOMUSEAI_NO_RESULTS') } unless @items;
+			_emit($request, \@items, 'PLUGIN_AUDIOMUSEAI_MENU_SONIC_MOODS');
+		},
+		sub { _notifyError($request, shift) },
+	);
+}
+
+sub _sonicMood {
+	my $request = shift;
+	my $client  = $request->client or return $request->setStatusBadParams;
+	my $mood    = _trim($request->getParam('mood') // '');
+	my $index   = $request->getParam('index');
+	return $request->setStatusBadParams
+		unless $mood =~ /\A[\w-]+\z/ && defined $index && $index =~ /\A\d+\z/;
+	my $label = _trim($request->getParam('mood_label') // '') || ucfirst($mood);
+	$prefs->client($client)->set('last_mood_label', $label);
+	$request->setStatusProcessing;
+	Plugins::AudioMuseAI::API::similar_by_mood($mood, $index, _loadN($client),
+		sub {
+			_queueResults($request, $client, shift, 1);
+			_maybeAutoSave($client, 'mood', $label) if $prefs->get('auto_save_mood');
+		},
+		sub { _notifyError($request, shift) },
+	);
+}
+
+# ----- Lyric themes (lyrics axes) ----------------------------------------------
+# Tap-only lyrics search: pick an axis (setting, social dynamic, emotional
+# valence, ...) then one of its labels (URBAN, MELANCHOLIC, ...).
+
+sub _axisLabel {
+	my $k = shift // '';
+	$k =~ s/\AAXIS_\d+_//;
+	$k =~ s/_/ /g;
+	return ucfirst(lc $k);
+}
+
+sub _menuLyricThemes {
+	my $request = shift;
+	my $axis = _trim($request->getParam('axis') // '');
+	$request->setStatusProcessing;
+	Plugins::AudioMuseAI::API::lyrics_axes(
+		sub {
+			my $data = shift;
+			my $axes = ref($data) eq 'HASH' && ref($data->{axes}) eq 'HASH' ? $data->{axes} : {};
+			my @items;
+			if (length $axis) {
+				my $labels = ref($axes->{$axis}) eq 'HASH' ? $axes->{$axis}{labels} : undef;
+				# Older servers return a plain list of labels per axis.
+				my @keys = ref($labels) eq 'HASH' ? sort keys %$labels
+				         : ref($axes->{$axis}) eq 'ARRAY' ? @{ $axes->{$axis} } : ();
+				for my $l (@keys) {
+					my $text = _axisLabel($l);
+					push @items, {
+						text    => _safeText($text),
+						actions => { go => { cmd => ['audiomuseai', 'lyric_theme'], player => 0,
+							params => { axis => $axis, label => $l,
+								mood_label => _safeText(_axisLabel($axis) . ': ' . $text) } } },
+						nextWindow => 'refresh',
+					};
+				}
+			}
+			else {
+				for my $a (sort keys %$axes) {
+					push @items, {
+						text    => _safeText(_axisLabel($a)),
+						actions => { go => { cmd => ['audiomuseai', 'menu_lyric_themes'],
+							player => 0, params => { axis => $a } } },
+					};
+				}
+			}
+			push @items, { text => string('PLUGIN_AUDIOMUSEAI_LYRICS_THEMES_NONE') } unless @items;
+			_emit($request, \@items, 'PLUGIN_AUDIOMUSEAI_MENU_LYRIC_THEMES');
+		},
+		sub { _notifyError($request, shift) },
+	);
+}
+
+sub _lyricTheme {
+	my $request = shift;
+	my $client  = $request->client or return $request->setStatusBadParams;
+	my $axis    = _trim($request->getParam('axis')  // '');
+	my $label   = _trim($request->getParam('label') // '');
+	return $request->setStatusBadParams
+		unless $axis =~ /\A\w+\z/ && $label =~ /\A[\w-]+\z/;
+	my $name = _trim($request->getParam('mood_label') // '') || _axisLabel($label);
+	$prefs->client($client)->set('last_mood_label', $name);
+	$request->setStatusProcessing;
+	Plugins::AudioMuseAI::API::lyrics_search_axes({ $axis => $label }, _loadN($client),
+		sub {
+			_queueResults($request, $client, shift, 1);
+			_maybeAutoSave($client, 'mood', $name) if $prefs->get('auto_save_mood');
+		},
+		sub {
+			my $err = shift // '';
+			return _notify($request, string('PLUGIN_AUDIOMUSEAI_LYRICS_NO_MATCH'))
+				if $err =~ /\b404\b|no lyrics/i;
+			_notifyError($request, $err);
+		},
+	);
+}
+
+# ----- Saved anchors -------------------------------------------------------------
+
+sub _anchorPlay {
+	my $request = shift;
+	my $client  = $request->client or return $request->setStatusBadParams;
+	my $aid     = $request->getParam('anchor_id');
+	return $request->setStatusBadParams unless defined $aid && $aid =~ /\A\d+\z/;
+	my $n = $request->getParam('n');
+	$n = _count($client) unless defined $n && $n =~ /\A\d+\z/ && $n > 0;
+	$n = FETCH_MAX if $n > FETCH_MAX;
+	my $name = _trim($request->getParam('name') // '');
+	$prefs->client($client)->set('last_mood_label', $name) if length $name;
+	$request->setStatusProcessing;
+	Plugins::AudioMuseAI::API::similar_by_anchor($aid, $n + 10,
+		sub { _queueResults($request, $client, shift, 1, { want => $n }) },
 		sub { _notifyError($request, shift) },
 	);
 }
@@ -1512,6 +2070,97 @@ sub _alchemyAddTo {
 		scalar @$list));
 }
 
+sub _alchemyAddArtist { _alchemyArtistTo($_[0], 'add'); }
+sub _alchemySubArtist { _alchemyArtistTo($_[0], 'sub'); }
+
+# Put the current track's artist (Lyrion contributor id — AudioMuse maps it
+# to its artist index) into the ADD / SUBTRACT list as "artist:<id>".
+sub _alchemyArtistTo {
+	my ($request, $bucket) = @_;
+	my $client = $request->client or return $request->setStatusBadParams;
+	my $song   = Slim::Player::Playlist::song($client);
+	my $artist = $song ? eval { $song->artist } : undef;
+	my $aid    = $artist ? eval { $artist->id } : undef;
+	unless (defined $aid) {
+		return _notify($request, string('PLUGIN_AUDIOMUSEAI_NOTHING_PLAYING'));
+	}
+	_alchemyStoreRef($request, $client, $bucket, "artist:$aid",
+		_safeText(eval { $artist->name } // '?'));
+}
+
+# Pick a Lyrion playlist or a saved anchor to ADD.
+sub _alchemyPick {
+	my $request = shift;
+	my $kind = $request->getParam('kind') // '';
+	my $item = sub {
+		my ($ref, $label) = @_;
+		return {
+			text    => _safeText($label),
+			actions => { go => { cmd => ['audiomuseai', 'alchemy_add_ref'], player => 0,
+				params => { ref => $ref, label => _safeText($label) } } },
+			nextWindow => 'refresh',
+		};
+	};
+	if ($kind eq 'anchor') {
+		$request->setStatusProcessing;
+		return Plugins::AudioMuseAI::API::list_anchors(
+			sub {
+				my $d = shift;
+				my $list = ref($d) eq 'HASH' && ref($d->{anchors}) eq 'ARRAY' ? $d->{anchors} : [];
+				my @items = map { $item->("anchor:$_->{id}", $_->{name} // "#$_->{id}") }
+					grep { ref($_) eq 'HASH' && defined $_->{id} } @$list;
+				push @items, { text => string('PLUGIN_AUDIOMUSEAI_RADIOS_NONE') } unless @items;
+				_emit($request, \@items, 'PLUGIN_AUDIOMUSEAI_ALCHEMY_ADD_ANCHOR');
+			},
+			sub { _notifyError($request, shift) },
+		);
+	}
+	my @items;
+	eval {
+		my $req = Slim::Control::Request::executeRequest(undef, ['playlists', 0, 200]);
+		for my $p (@{ ($req && $req->getResult('playlists_loop')) || [] }) {
+			next unless defined $p->{id};
+			push @items, $item->("playlist:$p->{id}", $p->{playlist} // "#$p->{id}");
+		}
+	};
+	$log->warn("alchemy playlist list failed: $@") if $@;
+	push @items, { text => string('PLUGIN_AUDIOMUSEAI_NO_RESULTS') } unless @items;
+	_emit($request, \@items, 'PLUGIN_AUDIOMUSEAI_ALCHEMY_ADD_PLAYLIST');
+}
+
+sub _alchemyAddRef {
+	my $request = shift;
+	my $client  = $request->client or return $request->setStatusBadParams;
+	my $ref     = $request->getParam('ref') // '';
+	return $request->setStatusBadParams unless $ref =~ /\A(?:playlist|anchor|artist):\d+\z/;
+	_alchemyStoreRef($request, $client, 'add', $ref,
+		_trim($request->getParam('label') // '') || $ref);
+}
+
+# Labels for non-song alchemy entries, so "Show" can describe them.
+sub _alchemyStoreRef {
+	my ($request, $client, $bucket, $ref, $label) = @_;
+	my $key  = "alchemy_$bucket";
+	my $list = _alchemyList($client, $key);
+	push @$list, $ref unless grep { $_ eq $ref } @$list;
+	$prefs->client($client)->set($key, $list);
+	my $labels = $prefs->client($client)->get('alchemy_labels');
+	$labels = {} unless ref($labels) eq 'HASH';
+	$labels->{$ref} = $label;
+	$prefs->client($client)->set('alchemy_labels', $labels);
+	_notify($request, sprintf('ADDED to %s: %s (%d in list)',
+		uc($bucket), _alchemyRefLabel($client, $ref), scalar @$list));
+}
+
+sub _alchemyRefLabel {
+	my ($client, $ref) = @_;
+	return _trackLabel($ref) unless $ref =~ /\A(artist|playlist|anchor):/;
+	my $type = ucfirst $1;
+	my $labels = $client ? $prefs->client($client)->get('alchemy_labels') : undef;
+	my $name = ref($labels) eq 'HASH' ? $labels->{$ref} : undef;
+	return "$type: " . ($name // $ref);
+}
+
 sub _alchemyShow {
 	my $request = shift;
 	my $client  = $request->client or return $request->setStatusBadParams;
@@ -1524,11 +2173,11 @@ sub _alchemyShow {
 	my @lines;
 	if (@$a) {
 		push @lines, sprintf('ADD (%d):', scalar @$a);
-		push @lines, map { '  + ' . _trackLabel($_) } @$a;
+		push @lines, map { '  + ' . _alchemyRefLabel($client, $_) } @$a;
 	}
 	if (@$s) {
 		push @lines, sprintf('SUBTRACT (%d):', scalar @$s);
-		push @lines, map { '  - ' . _trackLabel($_) } @$s;
+		push @lines, map { '  - ' . _alchemyRefLabel($client, $_) } @$s;
 	}
 	_notifyLines($request, \@lines);
 }
@@ -1551,6 +2200,7 @@ sub _alchemyReset {
 	my $client  = $request->client or return $request->setStatusBadParams;
 	$prefs->client($client)->set('alchemy_add', []);
 	$prefs->client($client)->set('alchemy_sub', []);
+	$prefs->client($client)->set('alchemy_labels', {});
 	_notify($request, string('PLUGIN_AUDIOMUSEAI_ALCHEMY_CLEARED'));
 }
 
@@ -1582,8 +2232,9 @@ sub _alchemyAlbum {
 	$log->info(sprintf('alchemy_album: %d tracks from album %s', scalar @track_ids, $aid));
 	$request->setStatusProcessing;
 	Plugins::AudioMuseAI::API::alchemy(
-		\@track_ids, [], _count($client),
-		sub { _queueResults($request, $client, shift, 1) },
+		[ map { _amId($_) } @track_ids ], [], _loadN($client),
+		sub { _queueResults($request, $client, shift, 1,
+			{ exclude => { map { $_ => 1 } @track_ids } }) },
 		sub { _notifyError($request, shift) },
 	);
 }
@@ -1597,9 +2248,11 @@ sub _alchemyGenerate {
 		return _notify($request, string('PLUGIN_AUDIOMUSEAI_ALCHEMY_EMPTY'));
 	}
 	$request->setStatusProcessing;
+	my $am = sub { [ map { /\A\d+\z/ ? _amId($_) : $_ } @{ $_[0] } ] };
 	Plugins::AudioMuseAI::API::alchemy(
-		$a, $s, _count($client),
-		sub { _queueResults($request, $client, shift, 1) },
+		$am->($a), $am->($s), _loadN($client),
+		sub { _queueResults($request, $client, shift, 1,
+			{ exclude => { map { $_ => 1 } grep { /\A\d+\z/ } @$a, @$s } }) },
 		sub { _notifyError($request, shift) },
 	);
 }
@@ -1613,6 +2266,14 @@ sub _alchemyList {
 
 # ----- Find Path ------------------------------------------------------------
 
+# Path methods: sonic (MusiCNN audio index), lyrics (merged lyrics+audio
+# SemGrove index — path_space=lyrics), hyperbolic (v3.5 geodesic journey
+# through the two songs' shared musical "ancestor").
+sub _findPathMethod {
+	my $m = shift // 'sonic';
+	return grep({ $_ eq $m } qw(sonic lyrics hyperbolic)) ? $m : 'sonic';
+}
+
 sub _findPathSearch {
 	my $request = shift;
 	my $client  = $request->client or return $request->setStatusBadParams;
@@ -1622,6 +2283,7 @@ sub _findPathSearch {
 	}
 	my $artist = _trim($request->getParam('artist') // '');
 	return _notify($request, string('PLUGIN_AUDIOMUSEAI_EMPTY_INPUT')) unless length $artist;
+	my $method = _findPathMethod($request->getParam('method'));
 
 	my $start_id = $song->id;
 	$request->setStatusProcessing;
@@ -1637,7 +2299,7 @@ sub _findPathSearch {
 				$tracks,
 				['audiomuseai', 'findpath_to'],
 				'end_id',
-				{ start_id => "$start_id" },
+				{ start_id => "$start_id", method => $method },
 			));
 		},
 		sub { _notifyError($request, shift) },
@@ -1652,13 +2314,21 @@ sub _findPathExecute {
 	unless (defined $start && length $start && defined $end && length $end) {
 		return $request->setStatusBadParams;
 	}
-	$log->info("findpath: $start -> $end");
+	my $method = _findPathMethod($request->getParam('method'));
+	$log->info("findpath ($method): $start -> $end");
 	$request->setStatusProcessing;
-	Plugins::AudioMuseAI::API::find_path(
-		$start, $end, FINDPATH_MAX_STEPS,
-		sub { _queueResults($request, $client, shift, 1) },
-		sub { _notifyError($request, shift) },
-	);
+	my $ok  = sub { _queueResults($request, $client, shift, 1, { path => 1 }) };
+	my $err = sub { _notifyError($request, shift) };
+	if ($method eq 'hyperbolic') {
+		# length counts both endpoints.
+		Plugins::AudioMuseAI::API::hyperbolic_journey(
+			_amId($start), _amId($end), FINDPATH_MAX_STEPS + 2, $ok, $err);
+	}
+	else {
+		Plugins::AudioMuseAI::API::find_path(
+			_amId($start), _amId($end), FINDPATH_MAX_STEPS, $ok, $err,
+			$method eq 'lyrics' ? 'lyrics' : 'audio');
+	}
 }
 
 # ----- Dynamic playlists ----------------------------------------------------
@@ -1670,6 +2340,29 @@ sub _dynamicSimilar {
 	$prefs->client($client)->set('dstm_active', 'similar');
 	$log->info("DSTM mode 'similar' active for " . $client->id);
 	_similarNow($request);
+}
+
+sub _dynamicSemGrove {
+	my $request = shift;
+	my $client  = $request->client or return $request->setStatusBadParams;
+	_ensureDstmEnabled();
+	$prefs->client($client)->set('dstm_active', 'semgrove');
+	$log->info("DSTM mode 'semgrove' active for " . $client->id);
+	_semGroveNow($request);
+}
+
+# Album mode: start by appending a blend of the current album, then keep
+# extending album-by-album from whatever is last in the queue.
+sub _dynamicAlbum {
+	my $request = shift;
+	my $client  = $request->client or return $request->setStatusBadParams;
+	_ensureDstmEnabled();
+	$prefs->client($client)->set('dstm_active', 'album');
+	$log->info("DSTM mode 'album' active for " . $client->id);
+	$request->setStatusProcessing;
+	_extendFetch($client, 'album', _count($client), sub {
+		_queueResults($request, $client, shift, 0);
+	});
 }
 
 sub _dynamicFingerprint {
@@ -1708,64 +2401,31 @@ sub _dynamicStop {
 # menu-based modes and map the returned IDs to local LMS track URLs (DSTM
 # consumes URLs, not IDs).
 
-sub _dstmMixSimilar {
-	my ($client, $cb) = @_;
+sub _dstmMixSimilar     { _dstmMix('similar',     @_) }
+sub _dstmMixAlbum       { _dstmMix('album',       @_) }
+sub _dstmMixFingerprint { _dstmMix('fingerprint', @_) }
+sub _dstmMixSemGrove    { _dstmMix('semgrove',    @_) }
+
+# "Mix by album" (discussion #686 — wirrunna) seeds alchemy with every track
+# of the last queued track's album and keeps the album's own tracks out, so
+# the queue continues outward rather than replaying the album. All modes go
+# through _extendFetch, i.e. the anti-repeat engine (queue + history +
+# same-song filtering, with fallback seeds when one runs dry).
+sub _dstmMix {
+	my ($mode, $client, $cb) = @_;
 	return $cb->($client, []) unless $client && $cb;
-	my $seed = _dstmSeedTrackId($client);
-	unless ($seed) {
-		$log->info('DSTM similar: no seed track in queue');
-		return $cb->($client, []);
-	}
-	$log->info("DSTM similar mix seeded from track $seed on " . $client->id);
-	Plugins::AudioMuseAI::API::similar_tracks(
-		$seed, _count($client),
-		sub { $cb->($client, _dstmTrackUrls(shift)); },
-		sub {
-			$log->warn('DSTM similar mix failed: ' . (shift // 'unknown'));
-			$cb->($client, []);
-		},
-	);
+	$log->info("DSTM $mode mix on " . $client->id);
+	_extendFetch($client, $mode, _dstmBatch($client), sub {
+		my $rows = shift;
+		_noteAdded($client, $rows);
+		$cb->($client, _dstmTrackUrls($rows));
+	});
 }
 
-sub _dstmMixFingerprint {
-	my ($client, $cb) = @_;
-	return $cb->($client, []) unless $client && $cb;
-	$log->info('DSTM fingerprint mix on ' . $client->id);
-	Plugins::AudioMuseAI::API::sonic_fingerprint(
-		_count($client),
-		sub { $cb->($client, _dstmTrackUrls(shift)); },
-		sub {
-			$log->warn('DSTM fingerprint mix failed: ' . (shift // 'unknown'));
-			$cb->($client, []);
-		},
-	);
-}
-
-# "Mix by album" (discussion #686 — wirrunna). MusicIP/SugarCube can seed
-# their continuous mix from the whole album rather than the single last
-# track, giving a broader result. We do the same by feeding all of the last
-# track's album tracks to AudioMuse's alchemy (centroid blend) endpoint, then
-# filtering the album's own tracks back out so the queue continues outward
-# rather than replaying the album.
-sub _dstmMixAlbum {
-	my ($client, $cb) = @_;
-	return $cb->($client, []) unless $client && $cb;
-	my $ids = _dstmSeedAlbumTrackIds($client);
-	unless ($ids && @$ids) {
-		$log->info('DSTM album: no seed album in queue');
-		return $cb->($client, []);
-	}
-	my %exclude = map { $_ => 1 } @$ids;
-	$log->info('DSTM album mix seeded from ' . scalar(@$ids)
-		. ' album tracks on ' . $client->id);
-	Plugins::AudioMuseAI::API::alchemy(
-		$ids, [], _count($client),
-		sub { $cb->($client, _dstmTrackUrls(shift, \%exclude)); },
-		sub {
-			$log->warn('DSTM album mix failed: ' . (shift // 'unknown'));
-			$cb->($client, []);
-		},
-	);
+sub _dstmBatch {
+	my $client = shift;
+	my $n = _count($client);
+	return $n > 25 ? 25 : $n;
 }
 
 # Seed from the last track in the player's queue — the trailing context
@@ -1796,18 +2456,14 @@ sub _dstmSeedAlbumTrackIds {
 	return \@ids;
 }
 
-# Map an AudioMuse track-list response to local LMS track URLs (DSTM wants
-# URLs). Skips anything not resolvable in the local library, and anything in
-# the optional $exclude set (used by the album mix to drop the seed tracks).
+# Map (already filtered) AudioMuse rows to local LMS track URLs — DSTM
+# consumes URLs, not ids. Skips anything not resolvable in the library.
 sub _dstmTrackUrls {
-	my ($data, $exclude) = @_;
-	$exclude ||= {};
-	my $tracks = _extractTracks($data);
+	my $rows = shift;
 	my @urls;
-	for my $t (@$tracks) {
+	for my $t (@{ _extractTracks($rows) }) {
 		my $id = $t->{item_id} // $t->{id};
 		next unless defined $id && $id =~ /\A\d+\z/;
-		next if $exclude->{$id};
 		my $obj = eval { Slim::Schema->find('Track', $id) } or next;
 		my $url = eval { $obj->url };
 		push @urls, $url if defined $url && length $url;
@@ -1827,7 +2483,8 @@ sub _nativeDstmIsOurs {
 	return 0 unless defined $prov && length $prov;
 	return $prov eq 'PLUGIN_AUDIOMUSEAI_DSTM_SIMILAR'
 		|| $prov eq 'PLUGIN_AUDIOMUSEAI_DSTM_ALBUM'
-		|| $prov eq 'PLUGIN_AUDIOMUSEAI_DSTM_FINGERPRINT';
+		|| $prov eq 'PLUGIN_AUDIOMUSEAI_DSTM_FINGERPRINT'
+		|| $prov eq 'PLUGIN_AUDIOMUSEAI_DSTM_SEMGROVE';
 }
 
 # ----- Server status / admin ------------------------------------------------
@@ -2027,6 +2684,8 @@ sub _maybeAutoSave {
 		$name = sprintf('AudioMuse: %s - %s', $label, _timestamp());
 	} elsif ($kind eq 'instant') {
 		$name = sprintf('AudioMuse: %s', $label);
+	} elsif ($kind eq 'album') {
+		$name = sprintf('AudioMuse album: %s', $label);
 	} else {
 		$name = _generateAutoName($client, $extra);
 	}
@@ -2434,22 +3093,44 @@ sub _extractTracks {
 	return [];
 }
 
+# Queue an AudioMuse result. $loadFresh: 1 = replace the queue, 0 = append.
+# $opts (optional):
+#   want    => max tracks to queue (default: the player's count setting)
+#   exclude => { id => 1 } extra ids to keep out (seeds)
+#   path    => 1 for ordered paths (keeps the destination; see _dedupePath)
+# Appends are filtered against the queue + player history (no repeats);
+# fresh loads are de-duplicated within themselves (same song, other copy).
 sub _queueResults {
-	my ($request, $client, $data, $loadFresh) = @_;
-	my $tracks = _extractTracks($data);
-	unless (ref($tracks) eq 'ARRAY' && @$tracks) {
+	my ($request, $client, $data, $loadFresh, $opts) = @_;
+	$opts ||= {};
+	my $tracks = _localizeRows(_extractTracks($data));
+	unless (@$tracks) {
 		return _notify($request, string('PLUGIN_AUDIOMUSEAI_NO_RESULTS'));
 	}
-	# Filter: defined, non-empty, and only digits (Lyrion track IDs are
-	# always integers; anything else would crash playlistcontrol).
+	my $want = $opts->{want} || _count($client);
+	my $excl = $loadFresh ? { ids => {}, keys => {} } : _exclusionSet($client, 1);
+	$excl->{ids}{$_} = 1 for keys %{ $opts->{exclude} || {} };
+
+	my $rows;
+	if ($opts->{path}) {
+		$rows = $loadFresh ? _dedupePath($tracks) : _freshRows($tracks, $excl);
+	}
+	else {
+		$rows = _freshRows($tracks, $excl, $want);
+	}
+	# Only Lyrion-numeric ids (anything else would crash playlistcontrol).
 	my @ids = grep { defined && /\A\d+\z/ }
-		map { $_->{item_id} // $_->{id} } @$tracks;
+		map { $_->{item_id} // $_->{id} } @$rows;
 	unless (@ids) {
-		return _notify($request, string('PLUGIN_AUDIOMUSEAI_NO_RESULTS'));
+		return _notify($request, string($loadFresh
+			? 'PLUGIN_AUDIOMUSEAI_NO_RESULTS'
+			: 'PLUGIN_AUDIOMUSEAI_NO_NEW_TRACKS'));
 	}
 	my $cmd = $loadFresh ? 'load' : 'add';
-	$log->info(sprintf('queueing %d tracks (%s) on %s',
-		scalar @ids, $cmd, $client->id));
+	# A fresh load replaces the queue, so earlier adds no longer matter.
+	if ($loadFresh) { delete $_recentAdds{ $client->id } } else { _noteAdded($client, $rows) }
+	$log->info(sprintf('queueing %d tracks (%s) on %s (%d offered)',
+		scalar @ids, $cmd, $client->id, scalar @$tracks));
 	Slim::Control::Request::executeRequest(
 		$client,
 		['playlistcontrol', "cmd:$cmd", 'track_id:' . join(',', @ids)]
@@ -2460,11 +3141,14 @@ sub _queueResults {
 		string('PLUGIN_AUDIOMUSEAI_QUEUED'), scalar @ids, $verb));
 }
 
-# Subscriber: track newly playing songs and auto-extend if a DSTM mode is active.
+# Subscriber: remember every song that starts playing (anti-repeat history)
+# and auto-extend the queue if a menu-started dynamic mode is active.
 sub _onNewSong {
 	my $request = shift;
 	my $client  = $request->client or return;
 	my $song    = Slim::Player::Playlist::song($client) or return;
+
+	_rememberTrackObj($client, $song);
 
 	my $mode = $prefs->client($client)->get('dstm_active') or return;
 	return unless $prefs->get('dstm_enabled');
@@ -2476,31 +3160,401 @@ sub _onNewSong {
 		- Slim::Player::Source::streamingSongIndex($client) - 1;
 	return if $remaining > 3;
 
-	$log->info("DSTM auto-extend mode=$mode remaining=$remaining client=" . $client->id);
+	my $cid = $client->id;
+	return if $_extending{$cid} && time() - $_extending{$cid} < 120;
+	$_extending{$cid} = time();
 
-	my $cb_ok = sub {
-		my $tracks = _extractTracks(shift);
-		return unless ref($tracks) eq 'ARRAY' && @$tracks;
-		my @ids = grep { defined && /\A\d+\z/ }
-			map { $_->{item_id} // $_->{id} } @$tracks;
-		return unless @ids;
+	$log->info("DSTM auto-extend mode=$mode remaining=$remaining client=$cid");
+
+	_extendFetch($client, $mode, EXTEND_BATCH, sub {
+		my $rows = shift;
+		delete $_extending{$cid};
+		my @ids = map { $_->{item_id} // $_->{id} } @$rows;
+		unless (@ids) {
+			$log->info("DSTM auto-extend found no new tracks on $cid");
+			return;
+		}
+		_noteAdded($client, $rows);
+		$log->info('DSTM auto-extend adding ' . scalar(@ids) . " new track(s) on $cid");
 		Slim::Control::Request::executeRequest(
 			$client,
 			['playlistcontrol', 'cmd:add', 'track_id:' . join(',', @ids)]
 		);
-	};
-	my $cb_err = sub { $log->warn('DSTM extend failed: ' . (shift // 'unknown')) };
+	});
+	# Note: the alchemy *builder* (add/sub lists) is intentionally not a
+	# dynamic mode — its meaning is "blend these tracks", not "keep going".
+}
 
-	if ($mode eq 'similar') {
-		Plugins::AudioMuseAI::API::similar_tracks(
-			$song->id, 10, $cb_ok, $cb_err);
-	} elsif ($mode eq 'fingerprint') {
-		Plugins::AudioMuseAI::API::sonic_fingerprint(10, $cb_ok, $cb_err);
+# ===========================================================================
+# Anti-repeat engine
+# ===========================================================================
+# AudioMuse answers each request statelessly, so chaining "similar to the
+# current track" quickly loops: A's neighbours include B, B's include A, and
+# a cluster of ~60 songs gets replayed over and over (measured: 64 unique in
+# a 205-track auto-extended queue, one song 17 times). Sonic Fingerprint is
+# deterministic and returned the identical list on every call. So every
+# append / extend path filters candidates against:
+#   - every track already in the player's queue,
+#   - the player's recent play history (HISTORY_MAX deep — songs that
+#     actually started playing, so a replaced-unheard queue doesn't count), and
+#   - a normalised "artist|title" key, so another copy of the same song
+#     (album vs single vs compilation vs "(Live)" / "(Remastered)") with a
+#     different track id doesn't slip through either.
+# Results are over-fetched so there's still a full batch after filtering,
+# and extends fall back to other seeds when one is exhausted.
+
+# Normalised identity of a song for duplicate detection.
+sub _trackKey {
+	my ($title, $artist) = @_;
+	$title  = lc(_trim($title  // ''));
+	$artist = lc(_trim($artist // ''));
+	# Drop bracketed qualifiers: (Live), [Remastered 2011], (feat. X)...
+	$title =~ s/\s*[\(\[][^\)\]]*[\)\]]//g;
+	# ...and dash-suffixed ones: "Song - 2011 Remaster", "Song - Live at X".
+	$title =~ s/\s+-\s+.*\b(?:remaster\w*|live|version|edit|mix|mono|stereo|demo|acoustic)\b.*\z//;
+	# Primary artist only: AudioMuse may credit "OneRepublic, Becky G" where
+	# Lyrion says "OneRepublic"; featured / secondary artists don't make it
+	# a different song.
+	$artist =~ s/\s*(?:[,;\/&+]|\bfeat\.?|\bft\.?|\bfeaturing\b|\bwith\b|\bx\b|\band\b).*\z//;
+	$title  =~ s/[^\p{L}\p{N}]+//g;
+	$artist =~ s/[^\p{L}\p{N}]+//g;
+	return undef unless length $title;
+	return "$artist|$title";
+}
+
+sub _rowKey {
+	my $t = shift;
+	return _trackKey($t->{title}, $t->{author} // $t->{artist} // $t->{album_artist});
+}
+
+sub _hist {
+	my $client = shift;
+	return $_history{ $client->id } ||= { order => [], ids => {}, keys => {} };
+}
+
+sub _remember {
+	my ($client, $id, $key) = @_;
+	return unless $client;
+	my $h = _hist($client);
+	$h->{ids}{$id}++   if defined $id;
+	$h->{keys}{$key}++ if defined $key;
+	push @{ $h->{order} }, [$id, $key];
+	while (@{ $h->{order} } > HISTORY_MAX) {
+		my ($oid, $okey) = @{ shift @{ $h->{order} } };
+		delete $h->{ids}{$oid}   if defined $oid  && --$h->{ids}{$oid}   <= 0;
+		delete $h->{keys}{$okey} if defined $okey && --$h->{keys}{$okey} <= 0;
 	}
-	# Note: alchemy mode is intentionally not auto-extended — alchemy's
-	# meaning is "blend these tracks", not "stream of similar to the
-	# current track", so re-extending it on every new-song event
-	# wouldn't carry the user's intent forward.
+}
+
+# Note rows we're about to add to a player's queue (see %_recentAdds).
+sub _noteAdded {
+	my ($client, $rows) = @_;
+	return unless $client;
+	my $ra  = $_recentAdds{ $client->id } ||= {};
+	my $now = time();
+	for my $t (@{ $rows || [] }) {
+		my $id = $t->{item_id} // $t->{id};
+		$ra->{$id} = [$now, _rowKey($t)] if defined $id;
+	}
+}
+
+sub _rememberTrackObj {
+	my ($client, $track) = @_;
+	return unless $track;
+	my $id = eval { $track->id };
+	return unless defined $id && $id =~ /\A\d+\z/;
+	my $key = eval { _trackKey($track->title, $track->artistName) };
+	_remember($client, "$id", $key);
+}
+
+# Ids + keys to keep out of an append: the whole current queue, plus the
+# player's history when $withHistory.
+sub _exclusionSet {
+	my ($client, $withHistory) = @_;
+	my %ids; my %keys;
+	if ($client) {
+		my $count = Slim::Player::Playlist::count($client) || 0;
+		# Very long queues: the newest 2000 entries are what matters.
+		my $from = $count > 2000 ? $count - 2000 : 0;
+		for my $i ($from .. $count - 1) {
+			my $t = Slim::Player::Playlist::track($client, $i) or next;
+			my $id = eval { $t->id };
+			next unless defined $id;
+			$ids{$id} = 1;
+			my $key = eval { _trackKey($t->title, $t->artistName) };
+			$keys{$key} = 1 if defined $key;
+		}
+		if ($withHistory) {
+			my $h = _hist($client);
+			$ids{$_}  = 1 for keys %{ $h->{ids} };
+			$keys{$_} = 1 for keys %{ $h->{keys} };
+		}
+		my $ra = $_recentAdds{ $client->id } || {};
+		my $now = time();
+		for my $id (keys %$ra) {
+			if ($now - $ra->{$id}[0] > RECENT_ADD_TTL) { delete $ra->{$id}; next; }
+			$ids{$id} = 1;
+			$keys{ $ra->{$id}[1] } = 1 if defined $ra->{$id}[1];
+		}
+	}
+	return { ids => \%ids, keys => \%keys };
+}
+
+# Filter result rows: Lyrion-numeric ids only, nothing in $excl (by id or
+# song key), no duplicates within the rows. Accepted rows are added to
+# $excl, so calling it again across fallback attempts keeps accumulating.
+# Returns at most $want rows (all when $want is 0/undef).
+sub _freshRows {
+	my ($rows, $excl, $want) = @_;
+	$excl ||= { ids => {}, keys => {} };
+	my @out;
+	for my $t (@{ $rows || [] }) {
+		last if $want && @out >= $want;
+		next unless ref($t) eq 'HASH';
+		my $id = $t->{item_id} // $t->{id};
+		next unless defined $id && $id =~ /\A\d+\z/;
+		next if $excl->{ids}{$id};
+		my $key = _rowKey($t);
+		next if defined $key && $excl->{keys}{$key};
+		$excl->{ids}{$id} = 1;
+		$excl->{keys}{$key} = 1 if defined $key;
+		push @out, $t;
+	}
+	return \@out;
+}
+
+# AudioMuse's map of Lyrion track ids goes stale when Lyrion rescans and
+# renumbers tracks (seen live: ~1 in 4 results pointed at ids Lyrion no
+# longer has; playlistcontrol silently drops those). Resolve every row to a
+# real local track: by id, else by title + primary artist via Lyrion's own
+# search. Rows come back carrying LYRION's id/title/artist, so song keys are
+# computed from the same metadata as the queue side.
+sub _localizeRows {
+	my $rows = shift;
+	my (@out, $stale, $recovered);
+	for my $t (@{ $rows || [] }) {
+		next unless ref($t) eq 'HASH';
+		my $id  = $t->{item_id} // $t->{id};
+		my $obj = (defined $id && $id =~ /\A\d+\z/)
+			? eval { Slim::Schema->find('Track', $id) } : undef;
+		unless ($obj) {
+			$stale++;
+			$obj = _findLocalByTitle($t) or next;
+			$recovered++;
+		}
+		my $lid = eval { $obj->id } // next;
+		if (defined $id && "$id" ne "$lid") {
+			%_amIdFor = () if keys %_amIdFor > 50000;
+			$_amIdFor{$lid} = "$id";
+		}
+		push @out, { %$t,
+			item_id => "$lid",
+			title   => (eval { $obj->title }      // $t->{title}),
+			author  => (eval { $obj->artistName } // $t->{author} // $t->{artist}),
+		};
+	}
+	$log->info(sprintf('%d result id(s) not in the Lyrion library (stale AudioMuse '
+		. 'mapping - run "Align music servers" in AudioMuse); %d recovered by title',
+		$stale, $recovered // 0)) if $stale;
+	return \@out;
+}
+
+sub _findLocalByTitle {
+	my $t = shift;
+	my $want = _rowKey($t) or return undef;
+	my $title = _trim($t->{title} // '');
+	return undef unless length $title;
+	my $hit;
+	eval {
+		my $req = Slim::Control::Request::executeRequest(undef,
+			['titles', 0, 20, "search:$title", 'tags:a']);
+		for my $r (@{ ($req && $req->getResult('titles_loop')) || [] }) {
+			next unless defined $r->{id};
+			my $k = _trackKey($r->{title}, $r->{artist});
+			next unless defined $k && $k eq $want;
+			$hit = Slim::Schema->find('Track', $r->{id}) and last;
+		}
+	};
+	return $hit;
+}
+
+# The id AudioMuse knows a Lyrion track by (they differ after a rescan).
+sub _amId {
+	my $id = shift;
+	return defined $id && exists $_amIdFor{$id} ? $_amIdFor{$id} : $id;
+}
+
+# Run $call->($audioMuseId, $ok, $err) for Lyrion track $tid. If AudioMuse
+# answers 404 (it doesn't know this Lyrion id — renumbered by a rescan and
+# not yet re-mapped), look the song up in AudioMuse by artist + title and
+# retry once with AudioMuse's own id for it.
+sub _withAmSeed {
+	my ($tid, $call, $ok, $err) = @_;
+	my $first = _amId($tid);
+	$call->($first, $ok, sub {
+		my $e = shift // '';
+		return $err->($e) unless $e =~ /\b404\b/;
+		my $obj    = eval { Slim::Schema->find('Track', $tid) } or return $err->($e);
+		my $title  = eval { $obj->title }      // '';
+		my $artist = eval { $obj->artistName } // '';
+		my $want   = _trackKey($title, $artist) or return $err->($e);
+		Plugins::AudioMuseAI::API::search_query("$artist $title",
+			sub {
+				my $rows = shift;
+				my ($hit) = grep {
+					ref($_) eq 'HASH' && defined $_->{item_id}
+						&& $_->{item_id} ne $first && (_rowKey($_) // '') eq $want
+				} (ref($rows) eq 'ARRAY' ? @$rows : ());
+				return $err->($e) unless $hit;
+				$_amIdFor{$tid} = '' . $hit->{item_id};
+				$log->info("track $tid unknown to AudioMuse; using its id $hit->{item_id} for the same song");
+				$call->($_amIdFor{$tid}, $ok, $err);
+			},
+			sub { $err->($e) },
+		);
+	});
+}
+
+# Paths (find path / journeys) must keep their final song: dedupe the
+# middle against the endpoints rather than letting an earlier copy of the
+# destination knock the destination itself out.
+sub _dedupePath {
+	my $rows = shift;
+	my @r = grep { ref($_) eq 'HASH' } @{ $rows || [] };
+	return \@r if @r < 3;
+	my $last = $r[-1];
+	my $excl = { ids => {}, keys => {} };
+	my $lid  = $last->{item_id} // $last->{id};
+	$excl->{ids}{$lid} = 1 if defined $lid;
+	my $lkey = _rowKey($last);
+	$excl->{keys}{$lkey} = 1 if defined $lkey;
+	my $mid = _freshRows([ @r[0 .. $#r - 1] ], $excl);
+	return [ @$mid, $last ];
+}
+
+# Request size for a fresh load: a little headroom so de-duplicating
+# (same song, other copy) still leaves a full playlist.
+sub _loadN {
+	my $n = _count(shift) + 10;
+	return $n > FETCH_MAX ? FETCH_MAX : $n;
+}
+
+# How many to ask AudioMuse for so $want survive the filters.
+sub _oversample {
+	my $want = shift || 10;
+	my $n = $want * 3 + 10;
+	$n = 30 if $n < 30;
+	$n = FETCH_MAX if $n > FETCH_MAX;
+	return $n;
+}
+
+# The last few track ids in the queue (newest last) — seeds for extends.
+sub _queueTailIds {
+	my ($client, $max) = @_;
+	my $count = Slim::Player::Playlist::count($client) || 0;
+	my @ids;
+	for (my $i = $count - 1; $i >= 0 && @ids < $max; $i--) {
+		my $t = Slim::Player::Playlist::track($client, $i) or next;
+		my $id = eval { $t->id };
+		unshift @ids, "$id" if defined $id && $id =~ /\A\d+\z/;
+	}
+	return \@ids;
+}
+
+# Run fetch attempts in order until $want fresh rows are collected (or the
+# attempts run out). Each attempt is sub { my ($ok, $err) = @_; API... }.
+# $done->(\@rows, $lastError) — the error only matters when no rows came back.
+sub _runAttempts {
+	my ($attempts, $excl, $want, $done, $got, $lastErr) = @_;
+	$got ||= [];
+	return $done->($got, $lastErr) if @$got >= $want || !@$attempts;
+	my ($first, @rest) = @$attempts;
+	my $next = sub { _runAttempts(\@rest, $excl, $want, $done, @_) };
+	$first->(
+		sub {
+			my $fresh = _freshRows(_localizeRows(_extractTracks(shift)), $excl, $want - @$got);
+			$next->([ @$got, @$fresh ], $lastErr);
+		},
+		sub {
+			my $err = shift // 'unknown';
+			$log->info("fetch attempt failed: $err");
+			$next->($got, $err);
+		},
+	);
+}
+
+# User-requested "similar to <track>" APPEND: new tracks only, widening the
+# fetch once if the first batch is all already queued / recently played.
+sub _appendSimilar {
+	my ($request, $client, $seed) = @_;
+	my $want  = _count($client);
+	my $excl  = _exclusionSet($client, 1);
+	$excl->{ids}{$seed} = 1;
+	my $fetch = _oversample($want);
+	my $sim = sub { my $n = shift; sub { _withAmSeed($seed, sub {
+		Plugins::AudioMuseAI::API::similar_tracks($_[0], $n, $_[1], $_[2]) }, @_) } };
+	my @attempts = ($sim->($fetch));
+	push @attempts, $sim->(FETCH_MAX) if $fetch < FETCH_MAX;
+	$request->setStatusProcessing;
+	_runAttempts(\@attempts, $excl, $want, sub {
+		my ($rows, $err) = @_;
+		return _notifyError($request, $err) if !@$rows && defined $err;
+		_queueResults($request, $client, $rows, 0, { exclude => { $seed => 1 } });
+	});
+}
+
+# Fetch $want NEW tracks to continue the player's queue in $mode
+# (similar | semgrove | album | fingerprint), then $done->(\@rows).
+sub _extendFetch {
+	my ($client, $mode, $want, $done) = @_;
+	my $excl  = _exclusionSet($client, 1);
+	my $fetch = _oversample($want);
+	my $tail  = _queueTailIds($client, 5);
+	my $last  = $tail->[-1];
+
+	my $similar = sub {
+		my $seed = shift;
+		return () unless $seed;
+		return sub { _withAmSeed($seed, sub {
+			Plugins::AudioMuseAI::API::similar_tracks($_[0], $fetch, $_[1], $_[2]) }, @_) };
+	};
+	# Blend of the last few queued tracks (temperature > 0 samples, so it
+	# also varies between calls) — the general-purpose fallback.
+	my @amTail = map { _amId($_) } @$tail;
+	my $blend = @amTail
+		? sub { Plugins::AudioMuseAI::API::alchemy(\@amTail, [], $fetch, @_) }
+		: ();
+
+	my @attempts;
+	if ($mode eq 'fingerprint') {
+		# Deterministic for a given listening history, so widen the window
+		# by how much this player has already heard.
+		my $hist = scalar @{ _hist($client)->{order} };
+		my $n = $fetch + $hist;
+		$n = FETCH_MAX if $n > FETCH_MAX;
+		push @attempts, sub { Plugins::AudioMuseAI::API::sonic_fingerprint($n, @_) };
+		push @attempts, $similar->($last), $blend;
+	}
+	elsif ($mode eq 'album') {
+		my $ids = _dstmSeedAlbumTrackIds($client) || [];
+		$excl->{ids}{$_} = 1 for @$ids;
+		my @amIds = map { _amId($_) } @$ids;
+		push @attempts, sub { Plugins::AudioMuseAI::API::alchemy(\@amIds, [], $fetch, @_) }
+			if @amIds;
+		push @attempts, $similar->($last), $blend;
+	}
+	elsif ($mode eq 'semgrove') {
+		push @attempts, sub { _withAmSeed($last, sub {
+			Plugins::AudioMuseAI::API::sem_grove($_[0], $fetch, $_[1], $_[2]) }, @_) }
+			if $last;
+		push @attempts, $similar->($last), $blend;
+	}
+	else { # similar
+		push @attempts, $similar->($last), $blend;
+		# Last resort: an earlier queue track as a fresh seed.
+		push @attempts, $similar->($tail->[0]) if @$tail > 1;
+	}
+	_runAttempts([ grep { $_ } @attempts ], $excl, $want, $done);
 }
 
 1;

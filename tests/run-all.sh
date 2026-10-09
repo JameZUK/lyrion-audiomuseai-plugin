@@ -34,6 +34,9 @@ run '02-payloads (request payload shapes — mocked HTTP)' \
 run '03-extracts (response unwrap shapes)' \
     "PERL5LIB='$STUBS' perl '$HERE/03-extracts.pl'"
 
+run '05-antirepeat (queue de-dup / auto-extend simulation)' \
+    "PERL5LIB='$STUBS' perl '$HERE/05-antirepeat.pl'"
+
 run '04-live    (against $AUDIOMUSE_URL — skipped if no token)' \
     "bash '$HERE/04-live.sh'"
 

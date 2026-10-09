@@ -213,5 +213,111 @@ sub fire_get {
 }
 
 # ---------------------------------------------------------------------------
+# v3.x additions
+# ---------------------------------------------------------------------------
+{
+    my ($url, $body) = fire_post(sub {
+        Plugins::AudioMuseAI::API::alchemy(
+            ['100', 'artist:184394', 'playlist:77', 'anchor:3'], ['artist:9'],
+            25, sub {}, sub {});
+    });
+    my %t = map { ($_->{op} . ':' . $_->{type} . ':' . $_->{id}) => 1 } @{ $body->{items} || [] };
+    check('alchemy: typed refs become {type,id} items',
+        $t{'ADD:song:100'} && $t{'ADD:artist:184394'} && $t{'ADD:playlist:77'}
+            && $t{'ADD:anchor:3'} && $t{'SUBTRACT:artist:9'},
+        encode_json($body));
+}
+{
+    my ($url, $body) = fire_post(sub {
+        Plugins::AudioMuseAI::API::album_creation('song', '123', sub {}, sub {});
+    });
+    check('album_creation(song): URL + body',
+        $url =~ m{/api/album_creation/generate$} && $body->{seed_type} eq 'song'
+            && $body->{item_id} eq '123', ($url // '') . ' ' . encode_json($body));
+    (undef, $body) = fire_post(sub {
+        Plugins::AudioMuseAI::API::album_creation('text', 'jazz piano', sub {}, sub {});
+    });
+    check('album_creation(text): query carried',
+        $body->{seed_type} eq 'text' && $body->{query} eq 'jazz piano', encode_json($body));
+}
+{
+    my ($url, $body) = fire_post(sub {
+        Plugins::AudioMuseAI::API::hyperbolic_similar('55', 'niche', 30, sub {}, sub {});
+    });
+    check('hyperbolic_similar: URL + mode + limit',
+        $url =~ m{/api/hyperbolic/similar$} && $body->{mode} eq 'niche'
+            && $body->{limit} == 30 && $body->{item_id} eq '55', encode_json($body));
+    ($url, $body) = fire_post(sub {
+        Plugins::AudioMuseAI::API::hyperbolic_journey('1', '2', 14, sub {}, sub {});
+    });
+    check('hyperbolic_journey: URL + endpoints + length',
+        $url =~ m{/api/hyperbolic/journey$} && $body->{start_item_id} eq '1'
+            && $body->{end_item_id} eq '2' && $body->{length} == 14, encode_json($body));
+}
+{
+    my $url = fire_get(sub {
+        Plugins::AudioMuseAI::API::find_path('1', '2', 12, sub {}, sub {}, 'lyrics');
+    });
+    check('find_path(lyrics): path_space=lyrics',
+        ($url // '') =~ /path_space=lyrics/, $url // '');
+    $url = fire_get(sub {
+        Plugins::AudioMuseAI::API::find_path('1', '2', 12, sub {}, sub {}, 'audio');
+    });
+    check('find_path(audio): no path_space', ($url // '') !~ /path_space/, $url // '');
+    $url = fire_get(sub {
+        Plugins::AudioMuseAI::API::similar_by_mood('happy', 2, 20, sub {}, sub {});
+    });
+    check('similar_by_mood: mood + centroid_index',
+        ($url // '') =~ m{/api/similar_tracks\?mood=happy&centroid_index=2&n=20}, $url // '');
+    $url = fire_get(sub {
+        Plugins::AudioMuseAI::API::similar_by_anchor(4, 20, sub {}, sub {});
+    });
+    check('similar_by_anchor: anchor_id', ($url // '') =~ /anchor_id=4&n=20/, $url // '');
+}
+{
+    my ($url, $body) = fire_post(sub {
+        Plugins::AudioMuseAI::API::lyrics_search_axes({ AXIS_1_SETTING => 'URBAN' }, 20, sub {}, sub {});
+    });
+    check('lyrics_search_axes: targets + limit',
+        $url =~ m{/api/lyrics/search/axes$} && $body->{targets}{AXIS_1_SETTING} eq 'URBAN'
+            && $body->{limit} == 20, encode_json($body));
+    ($url, $body) = fire_post(sub {
+        Plugins::AudioMuseAI::API::clap_search('jazz', 20, sub {}, sub {},
+            [{ term => 'piano', direction => 'more', weight => 5 }]);
+    });
+    check('clap_search: steering forwarded',
+        ref($body->{steering}) eq 'ARRAY' && $body->{steering}[0]{term} eq 'piano',
+        encode_json($body));
+    ($url, $body) = fire_post(sub {
+        Plugins::AudioMuseAI::API::clap_search('jazz', 20, sub {}, sub {});
+    });
+    check('clap_search: no steering key when unused', !exists $body->{steering}, encode_json($body));
+    ($url, $body) = fire_post(sub {
+        Plugins::AudioMuseAI::API::chat_playlist('80s synth', 30, sub {}, sub {});
+    });
+    check('chat_playlist: n forwarded',
+        $url =~ m{/chat/api/chatPlaylist$} && $body->{n} == 30 && $body->{userInput} eq '80s synth',
+        encode_json($body));
+}
+{
+    # Multi-server: the server_name pref is added to GET query and POST body.
+    my $prefs = Slim::Utils::Prefs::preferences('plugin.audiomuseai');
+    $prefs->set('server_name', 'Lyrion Two');
+    my $url = fire_get(sub {
+        Plugins::AudioMuseAI::API::similar_tracks('1', 10, sub {}, sub {});
+    });
+    check('server_name: appended to GET', ($url // '') =~ /&server=Lyrion%20Two$/, $url // '');
+    my (undef, $body) = fire_post(sub {
+        Plugins::AudioMuseAI::API::sem_grove('1', 10, sub {}, sub {});
+    });
+    check('server_name: added to POST body', ($body->{server} // '') eq 'Lyrion Two', encode_json($body));
+    $prefs->set('server_name', '');
+    $url = fire_get(sub {
+        Plugins::AudioMuseAI::API::similar_tracks('1', 10, sub {}, sub {});
+    });
+    check('server_name: blank = no server param', ($url // '') !~ /server=/, $url // '');
+}
+
+# ---------------------------------------------------------------------------
 print "\n----\n02-payloads: $pass passed, $fail failed\n";
 exit($fail ? 1 : 0);

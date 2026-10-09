@@ -6,6 +6,8 @@
 
 **Can't find the "AudioMuse: similar…" context-menu items in Material** — they're there, just under **More**. Material's long-press / **⋮** menu lists the common actions first (Play, Add to queue, Favourites…) and tucks plugin items into a **More** submenu. Path: long-press (or **⋮**) → **More** → *AudioMuse: …*. On the default web UI and iPeng they appear directly in the context menu.
 
+**Fewer tracks than requested, or "not analysed" on a song you know AudioMuse has** — AudioMuse remembers your tracks by the id Lyrion gave them when it analysed them. A Lyrion rescan / wipe-and-rescan renumbers tracks, and until AudioMuse re-maps them its ids point at tracks Lyrion no longer has (on a busy library this can be a quarter of results). Since v0.6.0 the plugin copes: it re-finds each stale result in your library by title + artist, and if AudioMuse doesn't know the id of the song you're seeding from, it looks the song up by title + artist and retries. `server.log` then says *"N result id(s) not in the Lyrion library (stale AudioMuse mapping...)"*. To fix it at the source, in AudioMuse-AI run **Setup → Music Servers → Align music servers** (or a per-server *Sweep*), then a **Cleaning** run with *delete orphans* enabled.
+
 **Test connection fails** — check the URL has a scheme, the token is correct, and Lyrion can reach the host. From the Lyrion box: `curl <url>/api/active_tasks`.
 
 **A menu flashes and disappears (Squeezer)** — should be fixed in recent versions. If it recurs, check `server.log` for `plugin.audiomuseai` entries to see what the dispatcher returned.
@@ -17,7 +19,9 @@
 ## Limitations & gotchas
 
 - **Similarity needs clustering done.** Until analysis *and* clustering have completed once, `Similar to *` returns "Service not ready". CLAP-based features (Fingerprint, Instant, Mood) work after analysis alone.
-- **Track IDs are assumed stable.** AudioMuse stores track IDs as Lyrion assigned them at scan time. If you re-scan and Lyrion reassigns IDs, re-run AudioMuse analysis. (Rare in practice.)
+- **Track IDs drift after a Lyrion rescan.** See *Fewer tracks than requested* above — the plugin works around it, but an AudioMuse *Align music servers* run fixes it properly.
+- **Anti-repeat history is in memory.** The "recently played" list (1000 songs per player) resets when Lyrion restarts; songs already in the queue are always excluded regardless.
+- **Album Creation** needs AudioMuse v3.6.2 with MusiCNN, DCLAP and lyrics analysis all enabled; **Explore** needs the hyperbolic index (an analysis run on v3.3+). Otherwise those items explain what's missing.
 - **Recent prompts** are remembered per-player but no longer surface in a menu (simplified for Squeezer compatibility). Still readable via the `audiomuseai menu_instant` JSON-RPC command.
 - **Find Path** is the most niche feature — only useful for a deliberate sonic transition between two specific tracks.
 

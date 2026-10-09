@@ -25,6 +25,12 @@ Player-scoped commands need a player MAC as the first param; server-wide command
 # Mood preset (CLAP prompt + label)
 {"params":["bb:bb:55:90:9c:db",["audiomuseai","mood","prompt:calm, ambient, peaceful","mood_label:Calm"]]}
 
+# Album Creation around the current track (AudioMuse v3.6.2)
+{"params":["bb:bb:55:90:9c:db",["audiomuseai","album_now"]]}
+
+# Hyperbolic explore: similar | roots | niche
+{"params":["bb:bb:55:90:9c:db",["audiomuseai","explore_now","mode:niche"]]}
+
 # Save current queue (uses your auto-name format setting)
 {"params":["bb:bb:55:90:9c:db",["audiomuseai","save_playlist"]]}
 

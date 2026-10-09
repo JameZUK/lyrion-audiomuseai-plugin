@@ -166,7 +166,7 @@ PLUGIN_AUDIOMUSEAI_MENU_ALCHEMY
 	EN	Song Alchemy
 
 PLUGIN_AUDIOMUSEAI_MENU_RADIOS
-	EN	AudioMuse Radios
+	EN	Alchemy radios and anchors
 
 PLUGIN_AUDIOMUSEAI_RADIOS_RUN
 	EN	Run all radios (rebuild playlists)
@@ -181,7 +181,7 @@ PLUGIN_AUDIOMUSEAI_RADIOS_RUN_OK
 	EN	Built %d playlist(s) from %d radio(s). Find them in Playlists.
 
 PLUGIN_AUDIOMUSEAI_MENU_FINDPATH
-	EN	Build a sonic journey between two songs...
+	EN	Find a path between two songs (sonic, lyrics, hyperbolic)
 
 PLUGIN_AUDIOMUSEAI_MENU_DYNAMIC
 	EN	Dynamic Playlists
@@ -398,3 +398,108 @@ PLUGIN_AUDIOMUSEAI_NO_TRACKS_FOR_ARTIST
 
 PLUGIN_AUDIOMUSEAI_EMPTY_INPUT
 	EN	Empty input — please type something.
+
+PLUGIN_AUDIOMUSEAI_NO_NEW_TRACKS
+	EN	No new tracks - everything AudioMuse suggested is already in your queue or was played recently.
+
+PLUGIN_AUDIOMUSEAI_MENU_ALBUM_NOW
+	EN	Create an album around current track
+
+PLUGIN_AUDIOMUSEAI_MENU_ALBUM_TEXT
+	EN	Create an album from a description...
+
+PLUGIN_AUDIOMUSEAI_PROMPT_ALBUM
+	EN	Describe the album in a few words (e.g. jazz piano female voice)
+
+PLUGIN_AUDIOMUSEAI_INFO_ALBUM_TRACK
+	EN	AudioMuse: create an album around this track
+
+PLUGIN_AUDIOMUSEAI_ALBUM_UNAVAILABLE
+	EN	Album Creation isn't available: it needs the MusiCNN, DCLAP and lyrics analyses enabled and run on your AudioMuse-AI server (v3.6.2+).
+
+PLUGIN_AUDIOMUSEAI_ALBUM_NO_SEED
+	EN	AudioMuse-AI couldn't build an album from that - the song isn't analysed yet, or too few songs surround it.
+
+PLUGIN_AUDIOMUSEAI_AUTO_SAVE_ALBUM
+	EN	Auto-save created albums
+
+PLUGIN_AUDIOMUSEAI_AUTO_SAVE_ALBUM_DESC
+	EN	Save each Album Creation result as a Lyrion playlist, named with the album name AudioMuse suggests.
+
+PLUGIN_AUDIOMUSEAI_MENU_EXPLORE
+	EN	Explore around current track
+
+PLUGIN_AUDIOMUSEAI_EXPLORE_SIMILAR
+	EN	Close neighbours (hyperbolic map)
+
+PLUGIN_AUDIOMUSEAI_EXPLORE_ROOTS
+	EN	Roots - broader, more general sound
+
+PLUGIN_AUDIOMUSEAI_EXPLORE_NICHE
+	EN	Niche - deeper, more specific cuts
+
+PLUGIN_AUDIOMUSEAI_INFO_EXPLORE_TRACK
+	EN	AudioMuse: niche deep cuts like this track
+
+PLUGIN_AUDIOMUSEAI_EXPLORE_UNAVAILABLE
+	EN	The hyperbolic index isn't ready on your AudioMuse-AI server (v3.3+, needs an analysis run), or this track has no projection yet.
+
+PLUGIN_AUDIOMUSEAI_MENU_SONIC_MOODS
+	EN	Sonic moods (analysed clusters)
+
+PLUGIN_AUDIOMUSEAI_MENU_LYRIC_THEMES
+	EN	Lyric themes
+
+PLUGIN_AUDIOMUSEAI_LYRICS_THEMES_NONE
+	EN	No lyric themes available - lyrics analysis is disabled or not run on the AudioMuse-AI server.
+
+PLUGIN_AUDIOMUSEAI_MENU_CONCEPTS
+	EN	Steering concepts (for Instant Playlist)
+
+PLUGIN_AUDIOMUSEAI_STEER_HELP
+	EN	Add concepts after a | in an Instant Playlist prompt, e.g. "jazz with viola | +viola x3, -drums"
+
+PLUGIN_AUDIOMUSEAI_STEER_UNKNOWN
+	EN	Unknown steering concept(s): %s. See "Steering concepts" under Mood presets for the valid list.
+
+PLUGIN_AUDIOMUSEAI_FINDPATH_SONIC
+	EN	Sonic path from current track to...
+
+PLUGIN_AUDIOMUSEAI_FINDPATH_LYRICS
+	EN	Lyrics + sound path from current track to...
+
+PLUGIN_AUDIOMUSEAI_FINDPATH_HYPERBOLIC
+	EN	Hyperbolic journey from current track to...
+
+PLUGIN_AUDIOMUSEAI_ALCHEMY_ADD_ARTIST
+	EN	ADD current artist
+
+PLUGIN_AUDIOMUSEAI_ALCHEMY_SUB_ARTIST
+	EN	SUBTRACT current artist
+
+PLUGIN_AUDIOMUSEAI_ALCHEMY_ADD_PLAYLIST
+	EN	ADD a Lyrion playlist...
+
+PLUGIN_AUDIOMUSEAI_ALCHEMY_ADD_ANCHOR
+	EN	ADD a saved anchor...
+
+PLUGIN_AUDIOMUSEAI_RADIO_PLAY
+	EN	Play radio:
+
+PLUGIN_AUDIOMUSEAI_ANCHOR_PLAY
+	EN	Play anchor:
+
+PLUGIN_AUDIOMUSEAI_DYNAMIC_SEMGROVE
+	EN	Continuous: lyrics + sound (SemGrove)
+
+PLUGIN_AUDIOMUSEAI_DYNAMIC_ALBUM
+	EN	Continuous: mix by album (broader)
+
+PLUGIN_AUDIOMUSEAI_DSTM_SEMGROVE
+	EN	AudioMuse-AI: Lyrics + sound mix (SemGrove)
+
+PLUGIN_AUDIOMUSEAI_SERVER_NAME
+	EN	AudioMuse music server name (multi-server)
+
+PLUGIN_AUDIOMUSEAI_SERVER_NAME_DESC
+	EN	Only needed if your AudioMuse-AI (v3.0+) has several music servers configured and this Lyrion server is NOT its default: enter the server's name exactly as shown in AudioMuse's setup page. Leave blank otherwise.

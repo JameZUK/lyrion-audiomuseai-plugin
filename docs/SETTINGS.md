@@ -6,11 +6,13 @@
 |---|---|
 | **Server URL** | Where AudioMuse-AI is running. `http://` is auto-prefixed; trailing slashes are stripped. |
 | **API token** | Bearer token from the AudioMuse-AI web UI → Administration. Whitespace trimmed; CR/LF rejected. |
-| **Default count** | How many tracks AudioMuse returns per request (clamped 5–100). |
+| **AudioMuse music server name** | Only for AudioMuse-AI v3 setups with **several** music servers where this Lyrion is *not* AudioMuse's default server: the server's name as shown on AudioMuse's setup page. Every request then targets that server, so the track ids AudioMuse returns are Lyrion's. Leave blank otherwise. |
+| **Default count** | How many tracks per playlist (clamped 5–100). Also the length AI Chat Playlist asks for. |
 | **Auto-extend the queue (DSTM)** | Lets the plugin's own Dynamic Playlists modes refill the queue when it drops to ≤ 3 remaining. (Auto-enabled the first time you start a Dynamic Playlists mode.) See also [Don't Stop The Music](#dont-stop-the-music). |
 | **Auto-name format** | How "Save current queue" names playlists when you don't type a name. See [below](#auto-name-strategies). |
 | **Auto-save Instant Playlist results** | After every Instant Playlist, save the queue as `AudioMuse: <prompt>`. |
-| **Auto-save Browse-by-Mood results** | After tapping a Mood preset, save as `AudioMuse: <mood> - <timestamp>`. |
+| **Auto-save Browse-by-Mood results** | After tapping a Mood preset, Sonic mood or Lyric theme, save as `AudioMuse: <mood> - <timestamp>`. |
+| **Auto-save created albums** | After Album Creation, save the queue as `AudioMuse album: <suggested name>`. |
 | **Test connection** | Probes the server; result is polled in-place via JSON-RPC. |
 
 The settings page also shows a live **Server Status panel** — current task (status message, state, progress %, running time, last log line) plus a **Library coverage** section (artists, albums, CLAP-indexed tracks, clustered tracks, top moods). It auto-refreshes every 10 s while a task is running.
@@ -31,10 +33,14 @@ How **Save current queue as playlist** titles a playlist when no name is typed:
 
 ## Don't Stop The Music
 
-The plugin registers two native **Don't Stop The Music** providers, so AudioMuse-AI appears in the per-player dropdown alongside MusicIP / SugarCube / LastMix:
+The plugin registers four native **Don't Stop The Music** providers, so AudioMuse-AI appears in the per-player dropdown alongside MusicIP / SugarCube / LastMix:
 
-- **AudioMuse-AI: Similar to recent tracks** — extends the queue with tracks similar to what was just playing.
-- **AudioMuse-AI: Sonic fingerprint** — extends from your library's sonic fingerprint.
+- **AudioMuse-AI: Similar to recent tracks** — extends the queue with tracks similar to what was just queued.
+- **AudioMuse-AI: Lyrics + sound mix (SemGrove)** — the same, on the merged lyrics + audio index.
+- **AudioMuse-AI: Mix by recent album (broader)** — blends the whole album of the last queued track.
+- **AudioMuse-AI: Sonic fingerprint** — extends from your listening history's sonic fingerprint.
+
+All four skip anything already queued or recently played on that player, and other copies of the same song — see [No repeats](USAGE.md#no-repeats).
 
 Set it under **Player Settings → Audio → Don't Stop The Music**. It's per-player, and when active it takes over auto-extend for that player (the plugin's own Dynamic Playlists auto-extend stands down to avoid double-filling).
 

@@ -1,7 +1,7 @@
 # Test suite
 
-Four independent layers, run cheapest-first. Each layer can be invoked
-on its own; `run-all.sh` chains them.
+Five automated layers, run cheapest-first, plus a manual on-player test.
+Each layer can be invoked on its own; `run-all.sh` chains 01-05.
 
 ```
 tests/
@@ -14,7 +14,15 @@ tests/
 ├── 03-extracts.pl Response-shape tests — _extractTracks against every
 │                  shape AudioMuse actually returns
 ├── 04-live.sh     Live HTTP tests against a real AudioMuse server
-└── run-all.sh     Run every layer; non-zero exit on any failure
+├── 05-antirepeat.pl  Anti-repeat engine: song keys, queue/history
+│                  filtering, path de-dup, steering parsing, stale-id
+│                  handling, and a simulated long auto-extend on a
+│                  deliberately loopy similarity graph
+├── 06-lms-e2e.py  MANUAL: drives a real player on a real Lyrion with the
+│                  plugin installed (muted; state saved and restored) —
+│                  every menu/generator + 8 long auto-extend runs, checks
+│                  no repeated tracks/songs. ~20 min. Not in run-all.
+└── run-all.sh     Run layers 01-05; non-zero exit on any failure
 ```
 
 ## Running
@@ -45,6 +53,17 @@ but `tests/.env` is the only "blessed" location.
 `AUDIOMUSE_URL` defaults to `http://mediastream.int.jmuk.co.uk:8000`.
 Override it via `tests/.env` or the env var for someone else's box.
 
+On-player test (plays music, muted, on the player you name):
+
+```bash
+LYRION_URL=http://lyrion:9000 tests/06-lms-e2e.py <player-mac> [test-prefix ...]
+```
+
+Seeds default to the maintainer's library — set `E2E_SEED`, `E2E_SEED2`,
+`E2E_SEED3`, `E2E_ARTIST_ID`/`E2E_ARTIST`, `E2E_TYPED_ARTIST`,
+`E2E_PATH_ARTIST` (and optionally `E2E_STALE_ID`) for yours. See the
+script's docstring.
+
 ## When something fails
 
 | Layer | First place to look |
@@ -52,6 +71,7 @@ Override it via `tests/.env` or the env var for someone else's box.
 | `01-syntax`  | The compile error printed verbatim — usually a typo in the source file. |
 | `02-payloads` | API.pm — request URL or JSON body changed. Update the test if the change is intentional, fix the API method otherwise. |
 | `03-extracts` | Plugin.pm `_extractTracks` doesn't recognize a new response shape. Add a branch for it; add the fixture to this test. |
+| `05-antirepeat` | Plugin.pm anti-repeat engine (`_trackKey`, `_freshRows`, `_extendFetch`, `_localizeRows`, `_withAmSeed`). |
 | `04-live`    | AudioMuse upstream API drifted. Read the swagger / source for the failing endpoint, update the request/extract code AND the matching test. |
 
 ## Adding a new API endpoint

@@ -64,9 +64,26 @@ sub _decode {
 	return ($data, undef);
 }
 
+# Optional AudioMuse multi-server selection (v3.0+). Blank = the AudioMuse
+# default server, which is the right answer for a single-Lyrion install.
+# Only needed when Lyrion is NOT AudioMuse's default server: without it,
+# the ids AudioMuse returns belong to the default server, not Lyrion.
+sub _server {
+	my $s = _trim($prefs->get('server_name') // '');
+	$s = '' if $s =~ /[\r\n]/;
+	return $s;
+}
+
+sub _withServer {
+	my $path = shift;
+	my $s = _server();
+	return $path unless length $s;
+	return $path . ($path =~ /\?/ ? '&' : '?') . 'server=' . uri_escape_utf8($s);
+}
+
 sub _get {
 	my ($path, $cb_ok, $cb_err, $timeout, $cache_for) = @_;
-	my $url = _base() . $path;
+	my $url = _base() . _withServer($path);
 	$timeout ||= TIMEOUT_QUERY;
 
 	if ($cache_for) {
@@ -108,7 +125,11 @@ sub _post {
 	$timeout ||= TIMEOUT_QUERY;
 	$log->debug("POST $url (timeout ${timeout}s)");
 
-	my $body = eval { to_json($payload || {}) };
+	$payload ||= {};
+	if (ref($payload) eq 'HASH' && length(my $srv = _server())) {
+		$payload = { %$payload, server => $srv };
+	}
+	my $body = eval { to_json($payload) };
 	if ($@) {
 		$log->warn("Failed to encode payload for $url: $@");
 		$cb_err->('Failed to serialise request body') if $cb_err;
@@ -194,10 +215,12 @@ sub clap_top_queries {
 # When ai_provider_used is NONE the server refuses with a message
 # explaining no provider is configured — surfaced verbatim to the user.
 sub chat_playlist {
-	my ($user_input, $cb_ok, $cb_err) = @_;
-	# LLM round-trips can take 30s+. Use the long timeout.
-	_post('/chat/api/chatPlaylist', { userInput => $user_input },
-		$cb_ok, $cb_err, TIMEOUT_LONG);
+	my ($user_input, $n, $cb_ok, $cb_err) = @_;
+	# LLM round-trips can take 30s+. Use the long timeout. `n` (v3.5.2+)
+	# sets the playlist length; older servers ignore it.
+	my %body = (userInput => $user_input);
+	$body{n} = int($n) if $n;
+	_post('/chat/api/chatPlaylist', \%body, $cb_ok, $cb_err, TIMEOUT_LONG);
 }
 
 sub cancel_task {
@@ -223,7 +246,7 @@ sub active_tasks {
 # fresh entry is available. Used by code paths that want to decorate
 # UI without waiting for a network round-trip.
 sub peek_active_tasks {
-	return $cache->get('get:' . _base() . '/api/active_tasks');
+	return $cache->get('get:' . _base() . _withServer('/api/active_tasks'));
 }
 
 sub last_task {
@@ -252,6 +275,14 @@ sub search_tracks {
 	_get($path, $cb_ok, $cb_err, TIMEOUT_QUERY, 60);
 }
 
+# Free-text track search (title / artist / album words). Bare array of
+# { item_id, title, author, album }.
+sub search_query {
+	my ($query, $cb_ok, $cb_err) = @_;
+	_get('/api/search_tracks?search_query=' . uri_escape_utf8($query) . '&end=20',
+		$cb_ok, $cb_err, TIMEOUT_QUERY, 60);
+}
+
 sub sonic_fingerprint {
 	my ($n, $cb_ok, $cb_err) = @_;
 	$n ||= 25;
@@ -259,21 +290,26 @@ sub sonic_fingerprint {
 }
 
 sub find_path {
-	my ($start_id, $end_id, $max_steps, $cb_ok, $cb_err) = @_;
+	my ($start_id, $end_id, $max_steps, $cb_ok, $cb_err, $space) = @_;
 	$max_steps ||= 10;
 	my $path = sprintf('/api/find_path?start_song_id=%s&end_song_id=%s&max_steps=%d',
 		uri_escape_utf8($start_id), uri_escape_utf8($end_id), $max_steps);
+	# path_space=lyrics walks the merged lyrics+audio (SemGrove) index.
+	$path .= '&path_space=lyrics' if ($space // '') eq 'lyrics';
 	_get($path, $cb_ok, $cb_err, TIMEOUT_LONG);
 }
 
 sub clap_search {
-	my ($prompt, $n, $cb_ok, $cb_err) = @_;
+	my ($prompt, $n, $cb_ok, $cb_err, $steering) = @_;
 	$n ||= 25;
 	# Server param is `limit`, not `n`. Response is wrapped:
 	# { query, count, results: [...] } — _queueResults / _extractTracks
-	# in Plugin.pm unwraps the `results` key.
-	_post('/api/clap/search', { query => $prompt, limit => $n },
-		$cb_ok, $cb_err, TIMEOUT_LONG);
+	# in Plugin.pm unwraps the `results` key. $steering (v3.5.1+) is an
+	# optional [ { term, weight, direction: more|less }, ... ] list of
+	# DCLAP concepts (terms must come from /api/clap/concepts).
+	my %body = (query => $prompt, limit => $n);
+	$body{steering} = $steering if ref($steering) eq 'ARRAY' && @$steering;
+	_post('/api/clap/search', \%body, $cb_ok, $cb_err, TIMEOUT_LONG);
 }
 
 # Build the alchemy payload. Items are passed as
@@ -282,22 +318,34 @@ sub clap_search {
 # populated from the player's currently-playing track), so type defaults
 # to 'song'. Response is wrapped: { results: [...], filtered_out: [...],
 # centroid_2d: ... } — the unwrap happens in _extractTracks.
-sub alchemy {
-	my ($add_ids, $sub_ids, $n, $cb_ok, $cb_err) = @_;
-	$n ||= 25;
+#
+# An id may also be a typed reference "type:id" (v2.3+/v3.x): artist:<Lyrion
+# contributor id or name>, playlist:<Lyrion playlist id>, anchor:<anchor id>,
+# mood:<mood name>. Plain ids are songs.
+sub alchemy_items {
+	my ($add_ids, $sub_ids) = @_;
 	my @items;
-	for my $id (@{ $add_ids || [] }) {
-		next unless defined $id && length $id;
-		push @items, { id => "$id", op => 'ADD', type => 'song' };
+	for my $pair ([ADD => $add_ids], [SUBTRACT => $sub_ids]) {
+		my ($op, $list) = @$pair;
+		for my $id (@{ $list || [] }) {
+			next unless defined $id && length $id;
+			my ($type, $val) = ('song', "$id");
+			if ($id =~ /\A(artist|playlist|anchor|mood|song):(.+)\z/s) {
+				($type, $val) = ($1, $2);
+			}
+			push @items, { id => $val, op => $op, type => $type };
+		}
 	}
-	for my $id (@{ $sub_ids || [] }) {
-		next unless defined $id && length $id;
-		push @items, { id => "$id", op => 'SUBTRACT', type => 'song' };
-	}
-	_post('/api/alchemy', {
-		items => \@items,
-		n     => $n,
-	}, $cb_ok, $cb_err, TIMEOUT_LONG);
+	return \@items;
+}
+
+sub alchemy {
+	my ($add_ids, $sub_ids, $n, $cb_ok, $cb_err, $temperature) = @_;
+	$n ||= 25;
+	my $items = alchemy_items($add_ids, $sub_ids);
+	my %body = (items => $items, n => $n);
+	$body{temperature} = $temperature + 0 if defined $temperature;
+	_post('/api/alchemy', \%body, $cb_ok, $cb_err, TIMEOUT_LONG);
 }
 
 # Pre-warm the CLAP text-search model so the first Instant Playlist
@@ -354,6 +402,105 @@ sub list_radios {
 sub run_radios {
 	my ($cb_ok, $cb_err) = @_;
 	_post('/api/radios/run', {}, $cb_ok, $cb_err, TIMEOUT_LONG);
+}
+
+# ---------- v3.x additions ----------
+
+# Which analysis models are enabled / how much of the library they cover.
+# Drives which feature menus are shown (Album Creation needs musicnn + clap
+# + lyrics). Response: { models: { musicnn|clap|lyrics|neural-fingerprint:
+# { enabled, global: { count, percentage, total } } }, server_id }.
+sub models {
+	my ($cb_ok, $cb_err) = @_;
+	_get('/api/models', $cb_ok, $cb_err, TIMEOUT_FAST, 300);
+}
+
+sub version {
+	my ($cb_ok, $cb_err) = @_;
+	_get('/api/version', $cb_ok, $cb_err, TIMEOUT_FAST, 300);
+}
+
+# Album Creation (v3.6.2): a sequenced, CD-like album from one seed song or a
+# few words. Response: { suggested_name, seed, tracks: [ { item_id, title, author, slot,
+# role, ... } ], stats: {...} }. The seed song is part of the album.
+sub album_creation {
+	my ($seed_type, $seed, $cb_ok, $cb_err) = @_;
+	my %body = (seed_type => $seed_type);
+	if ($seed_type eq 'song') { $body{item_id} = "$seed"; }
+	else                      { $body{query}   = "$seed"; }
+	_post('/api/album_creation/generate', \%body, $cb_ok, $cb_err, TIMEOUT_LONG);
+}
+
+# Hyperbolic Explorer (v3.3+): similar | roots (more general / mainstream
+# neighbourhood) | niche (more specific / deeper cuts) around a seed song.
+# Response: { results: [ { item_id, title, author, ... } ], count, ... }.
+sub hyperbolic_similar {
+	my ($item_id, $mode, $n, $cb_ok, $cb_err) = @_;
+	$n ||= 25;
+	_post('/api/hyperbolic/similar',
+		{ item_id => "$item_id", mode => ($mode || 'similar'), limit => $n },
+		$cb_ok, $cb_err, TIMEOUT_LONG);
+}
+
+# Hyperbolic Path (v3.5): geodesic journey between two songs through their
+# shared musical "ancestor". `length` counts both endpoints.
+# Response: { results: [ { item_id, title, author, step, ... } ], ... }.
+sub hyperbolic_journey {
+	my ($start_id, $end_id, $length, $cb_ok, $cb_err) = @_;
+	my %body = (start_item_id => "$start_id", end_item_id => "$end_id");
+	$body{length} = int($length) if $length;
+	_post('/api/hyperbolic/journey', \%body, $cb_ok, $cb_err, TIMEOUT_LONG);
+}
+
+# Sonic mood clusters: { <mood>: [ { index, n_songs, top_tags: [...] }, ... ] }.
+sub mood_centroids {
+	my ($cb_ok, $cb_err) = @_;
+	_get('/api/mood_centroids', $cb_ok, $cb_err, TIMEOUT_FAST, 600);
+}
+
+# Songs nearest one mood centroid (similar_tracks in centroid mode).
+sub similar_by_mood {
+	my ($mood, $index, $n, $cb_ok, $cb_err) = @_;
+	$n ||= 25;
+	my $path = sprintf('/api/similar_tracks?mood=%s&centroid_index=%d&n=%d&eliminate_duplicates=true',
+		uri_escape_utf8($mood), int($index // 0), $n);
+	_get($path, $cb_ok, $cb_err, TIMEOUT_QUERY);
+}
+
+# Saved alchemy anchors: { anchors: [ { id, name }, ... ] }.
+sub list_anchors {
+	my ($cb_ok, $cb_err) = @_;
+	_get('/api/anchors', $cb_ok, $cb_err, TIMEOUT_FAST, 30);
+}
+
+# Songs nearest a saved anchor (similar_tracks in anchor mode).
+sub similar_by_anchor {
+	my ($anchor_id, $n, $cb_ok, $cb_err) = @_;
+	$n ||= 25;
+	my $path = sprintf('/api/similar_tracks?anchor_id=%d&n=%d&eliminate_duplicates=true',
+		int($anchor_id), $n);
+	_get($path, $cb_ok, $cb_err, TIMEOUT_QUERY);
+}
+
+# Lyrics "themes": { axes: { AXIS_x: { description, labels: { KEY: desc } } } }.
+sub lyrics_axes {
+	my ($cb_ok, $cb_err) = @_;
+	_get('/api/lyrics/axes', $cb_ok, $cb_err, TIMEOUT_FAST, 600);
+}
+
+# Lyrics search by axis label(s): targets = { AXIS_x => LABEL, ... }.
+sub lyrics_search_axes {
+	my ($targets, $n, $cb_ok, $cb_err) = @_;
+	$n ||= 25;
+	_post('/api/lyrics/search/axes', { targets => $targets, limit => $n },
+		$cb_ok, $cb_err, TIMEOUT_LONG);
+}
+
+# DCLAP concept vocabulary for steering: { available, alpha_steps,
+# categories: [ { category, label, terms: [ { term } ] } ] }.
+sub clap_concepts {
+	my ($cb_ok, $cb_err) = @_;
+	_get('/api/clap/concepts', $cb_ok, $cb_err, TIMEOUT_FAST, 600);
 }
 
 1;

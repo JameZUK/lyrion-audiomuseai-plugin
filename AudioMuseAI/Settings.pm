@@ -20,6 +20,7 @@ sub prefs {
 	return ($prefs, qw(
 		url token default_count dstm_enabled
 		save_playlist_format auto_save_instant auto_save_mood
+		auto_save_album server_name
 	));
 }
 
@@ -50,6 +51,11 @@ sub handler {
 		my $t = _trim($params->{pref_token});
 		$t = '' if $t =~ /[\r\n]/;        # reject header-smuggling input
 		$params->{pref_token} = $t;
+	}
+	if (defined $params->{pref_server_name}) {
+		my $n = _trim($params->{pref_server_name});
+		$n = '' if $n =~ /[\r\n]/;
+		$params->{pref_server_name} = $n;
 	}
 	if (defined $params->{pref_default_count}) {
 		my $n = $params->{pref_default_count} || 25;

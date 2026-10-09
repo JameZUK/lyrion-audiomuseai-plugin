@@ -199,6 +199,40 @@ if [[ -n "$TID" && -n "$TID2" && "$TID" != "$TID2" ]]; then
     assert_keys '/api/find_path: returns {path, total_distance}' "$fp" path total_distance
 fi
 
+# --- 13. v3.x endpoints the plugin now uses ---
+body=$(curl -sS -H "$H" "$URL/api/models")
+assert_keys '/api/models: returns {models}' "$body" models
+body=$(curl -sS -H "$H" "$URL/api/mood_centroids")
+assert_keys '/api/mood_centroids: has happy + sad clusters' "$body" happy sad
+body=$(curl -sS -H "$H" "$URL/api/anchors")
+assert_keys '/api/anchors: returns {anchors}' "$body" anchors
+body=$(curl -sS -H "$H" "$URL/api/radios")
+assert_keys '/api/radios: returns {radios}' "$body" radios
+body=$(curl -sS -H "$H" "$URL/api/lyrics/axes")
+assert_keys '/api/lyrics/axes: returns {axes}' "$body" axes
+body=$(curl -sS -H "$H" "$URL/api/clap/concepts")
+assert_keys '/api/clap/concepts: returns {available, categories}' "$body" available categories
+body=$(curl -sS -G -H "$H" --data-urlencode 'mood=happy' --data-urlencode 'centroid_index=0' \
+  --data-urlencode 'n=3' "$URL/api/similar_tracks")
+assert_array_keys '/api/similar_tracks (mood centroid): items carry {item_id, title}' "$body" item_id title
+body=$(curl -sS -X POST -H "$H" -H "$CT" -d '{"targets":{"AXIS_1_SETTING":"URBAN"},"limit":3}' \
+  "$URL/api/lyrics/search/axes")
+assert_keys '/api/lyrics/search/axes: returns {results}' "$body" results
+if [[ -n "$TID" ]]; then
+    body=$(curl -sS -X POST -H "$H" -H "$CT" -d "{\"item_id\":\"$TID\",\"mode\":\"niche\",\"limit\":3}" \
+      "$URL/api/hyperbolic/similar")
+    assert_keys '/api/hyperbolic/similar: returns {results, mode}' "$body" results mode
+    body=$(curl -sS -X POST -H "$H" -H "$CT" -d "{\"seed_type\":\"song\",\"item_id\":\"$TID\"}" \
+      "$URL/api/album_creation/generate")
+    assert_keys '/api/album_creation/generate: returns {suggested_name, tracks, stats}' "$body" suggested_name tracks stats
+fi
+if [[ -n "$TID" && -n "$TID2" && "$TID" != "$TID2" ]]; then
+    body=$(curl -sS -X POST -H "$H" -H "$CT" \
+      -d "{\"start_item_id\":\"$TID\",\"end_item_id\":\"$TID2\",\"length\":6}" \
+      "$URL/api/hyperbolic/journey")
+    assert_keys '/api/hyperbolic/journey: returns {results}' "$body" results
+fi
+
 echo
 if [[ $fail -eq 0 ]]; then
     echo "04-live: all $pass live checks passed"
