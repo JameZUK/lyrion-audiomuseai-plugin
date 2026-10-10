@@ -57,7 +57,9 @@ Everything lives under **My Music → AudioMuse-AI**:
 
 ### Keep it going & blend
 
-- **Don't Stop The Music** — pick an AudioMuse mode in your player's audio settings and the queue refills itself as it runs low. Four flavours: *Similar to recent tracks*, *Lyrics + sound (SemGrove)*, *Mix by recent album* (broader), and *Sonic fingerprint*.
+- **Don't Stop The Music** — pick an AudioMuse mode in your player's audio settings and the queue refills itself as it runs low. Five flavours: *Similar to recent tracks*, *Lyrics + sound (SemGrove)*, *Hyperbolic map*, *Mix by recent album* (broader), and *Sonic fingerprint*. Only want this part? Set **Menus → Don't Stop The Music only** in the settings and the plugin stays out of your menus.
+- **Mix filters** — keep mixes varied and to your taste: no same artist / album within N tracks, minimum and maximum track length, Christmas music only in December, artists and albums to never include, genre groups, shuffled picks, stricter similarity. These are Craig Drummond's ideas — see [Credits](#a-special-thank-you-to-craig-drummond).
+- **Mixes from anything** — *AudioMuse: mix from this artist / album / genre* in the context menus, or save an `audiomuse://?artist=...` URL as a favourite to start one with a tap (see [Usage](docs/USAGE.md#favourites--audiomuse-urls)).
 - **Dynamic Playlists** — the same auto-extend, started from the plugin menu instead.
 - **No repeats** — anything that adds to your queue (auto-extend, Don't Stop The Music, "Similar to current track") skips songs already in the queue or played recently on that player — including other copies of the same song (album vs. single vs. *(Live)* / *(Remastered)*).
 - **Song Alchemy** — blend it your way: add songs, whole artists, Lyrion playlists or saved anchors you want it to lean toward, subtract ones to avoid, then generate.
@@ -113,6 +115,18 @@ A big thank you to everyone who has reported issues, suggested features, tested 
 MIT — see [LICENSE](LICENSE).
 
 ## Credits
+
+### A special thank you to Craig Drummond
+
+A big thank you to **[Craig Drummond](https://github.com/CDrummond)** — author of [Material Skin](https://github.com/CDrummond/lms-material) and of his own AudioMuse-AI Don't Stop The Music plugin, **[AudioMuse Mixer](https://github.com/CDrummond/lms-audiomuse-mixer)**. Craig contributed the Material SVG icon, and generously shared the ideas behind his mixer, which have made this an even better plugin:
+
+- **Christmas music only in December** — his great idea, and now on by default here too.
+- **Don't Stop The Music improvements** — choosing how many tracks to add and how many seed tracks to blend, keeping the same artist or album from coming round too soon, track-length limits, excluded artists and albums, genre groups, shuffling the best matches for variety, and falling back to the Last.fm mixer when nothing is found.
+- **`audiomuse://` favourites URLs** and **mixes from an artist, album or genre**.
+
+If you only want AudioMuse for Don't Stop The Music, do take a look at his plugin as well.
+
+### Also
 
 - [AudioMuse-AI](https://github.com/NeptuneHub/AudioMuse-AI) by NeptuneHub — the upstream project providing all the sonic analysis.
 - [Lyrion Music Server](https://lyrion.org) — the music-server framework.

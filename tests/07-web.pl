@@ -67,8 +67,13 @@ my $client = bless {}, 'FakeClient';
 
 # --- registration ---
 Plugins::AudioMuseAI::Web::init();
-check('registers a My Music (browse) link',
+Plugins::AudioMuseAI::Web::setVisible(1);
+check('setVisible(1): My Music (browse) link registered',
     ($Slim::Web::Pages::links{browse}{PLUGIN_AUDIOMUSEAI} // '') eq 'plugins/AudioMuseAI/index.html');
+Plugins::AudioMuseAI::Web::setVisible(0);
+check("setVisible(0): link removed (Don't Stop The Music only mode)",
+    exists $Slim::Web::Pages::links{browse}{PLUGIN_AUDIOMUSEAI}
+        && !defined $Slim::Web::Pages::links{browse}{PLUGIN_AUDIOMUSEAI});
 check('registers the page handler',
     ref $Slim::Web::Pages::functions{'plugins/AudioMuseAI/index.html'} eq 'CODE');
 

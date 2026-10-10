@@ -21,6 +21,12 @@ sub prefs {
 		url token default_count dstm_enabled
 		save_playlist_format auto_save_instant auto_save_mood
 		auto_save_album server_name
+		mix_no_repeat_artist mix_no_repeat_album mix_min_duration mix_max_duration
+		mix_filter_xmas mix_exclude_artists mix_exclude_albums mix_filter_genres
+		mix_genre_groups mix_use_track_genre mix_match_all_genres mix_shuffle
+		mix_strict_similarity history_max
+		dstm_tracks dstm_seed_tracks dstm_seed_strict dstm_lastmix_fallback
+		ui_mode
 	));
 }
 
@@ -62,6 +68,32 @@ sub handler {
 		$n = 5   if $n < 5;
 		$n = 100 if $n > 100;
 		$params->{pref_default_count} = int($n);
+	}
+
+	# Mix filter / DSTM numbers: whole numbers, clamped to sane ranges.
+	my %range = (
+		mix_no_repeat_artist => [0, 200],  mix_no_repeat_album => [0, 200],
+		mix_min_duration     => [0, 3600], mix_max_duration    => [0, 7200],
+		history_max          => [10, 5000],
+		dstm_tracks          => [1, 50],   dstm_seed_tracks    => [1, 10],
+	);
+	for my $k (keys %range) {
+		next unless defined $params->{"pref_$k"};
+		my ($lo, $hi) = @{ $range{$k} };
+		my $n = $params->{"pref_$k"};
+		$n = ($n =~ /\A\s*(\d+)\s*\z/) ? $1 : $lo;
+		$n = $lo if $n < $lo;
+		$n = $hi if $n > $hi;
+		$params->{"pref_$k"} = int($n);
+	}
+	for my $k (qw(mix_exclude_artists mix_exclude_albums mix_genre_groups)) {
+		next unless defined $params->{"pref_$k"};
+		# One entry per line; drop blank lines and stray whitespace.
+		$params->{"pref_$k"} = join("\n", grep { length }
+			map { my $l = $_; $l =~ s/\A\s+|\s+\z//g; $l } split /\r?\n/, $params->{"pref_$k"});
+	}
+	if (defined $params->{pref_ui_mode}) {
+		$params->{pref_ui_mode} = 'full' unless $params->{pref_ui_mode} eq 'dstm';
 	}
 
 	# Whitelist for save_playlist_format — guards against form-tampering.

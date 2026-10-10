@@ -31,6 +31,12 @@ Player-scoped commands need a player MAC as the first param; server-wide command
 # Hyperbolic explore: similar | roots | niche
 {"params":["bb:bb:55:90:9c:db",["audiomuseai","explore_now","mode:niche"]]}
 
+# Mix from an artist / album / genre / track (count optional; dstm:1 = keep going)
+{"params":["bb:bb:55:90:9c:db",["audiomuseai","mix","artist_id:184394","count:20","dstm:1"]]}
+
+# The same through a favourites-style URL
+{"params":["bb:bb:55:90:9c:db",["playlist","play","audiomuse://?artist=Iron%20Maiden&count=15"]]}
+
 # Save current queue (uses your auto-name format setting)
 {"params":["bb:bb:55:90:9c:db",["audiomuseai","save_playlist"]]}
 

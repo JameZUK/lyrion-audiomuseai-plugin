@@ -509,3 +509,162 @@ PLUGIN_AUDIOMUSEAI_WEB_NO_PLAYER
 
 PLUGIN_AUDIOMUSEAI_SERVER_NAME_REJECTED
 	EN	AudioMuse-AI rejected the request - check the "AudioMuse music server name" setting matches a server name in AudioMuse's Setup page (Settings > Plugins > AudioMuse-AI > Test connection checks it).
+
+PLUGIN_AUDIOMUSEAI_SECTION_MIX
+	EN	Mix filters
+
+PLUGIN_AUDIOMUSEAI_SECTION_MIX_DESC
+	EN	Applied to every mix the plugin builds - similar tracks, moods, instant playlists, Don't Stop The Music and so on (not to Album Creation or Find Path, which keep their own running order). Thanks to Craig Drummond, whose AudioMuse Mixer plugin these ideas come from.
+
+PLUGIN_AUDIOMUSEAI_MIX_NO_REPEAT_ARTIST
+	EN	Don't repeat an artist within
+
+PLUGIN_AUDIOMUSEAI_MIX_NO_REPEAT_ARTIST_DESC
+	EN	Number of tracks before the same artist can appear again. The artist may still repeat sooner if there are too few other candidates. 0 = off.
+
+PLUGIN_AUDIOMUSEAI_MIX_NO_REPEAT_ALBUM
+	EN	Don't repeat an album within
+
+PLUGIN_AUDIOMUSEAI_MIX_NO_REPEAT_ALBUM_DESC
+	EN	Number of tracks before another track from the same album can appear (Various Artists albums are exempt). It may still repeat sooner if there are too few other candidates. 0 = off.
+
+PLUGIN_AUDIOMUSEAI_MIX_MIN_DURATION
+	EN	Minimum track length (seconds)
+
+PLUGIN_AUDIOMUSEAI_MIX_MIN_DURATION_DESC
+	EN	Leave out tracks shorter than this - handy for skipping intros and interludes. 0 = no minimum.
+
+PLUGIN_AUDIOMUSEAI_MIX_MAX_DURATION
+	EN	Maximum track length (seconds)
+
+PLUGIN_AUDIOMUSEAI_MIX_MAX_DURATION_DESC
+	EN	Leave out tracks longer than this - e.g. 600 to skip anything over ten minutes. 0 = no maximum.
+
+PLUGIN_AUDIOMUSEAI_MIX_FILTER_XMAS
+	EN	Christmas music only in December
+
+PLUGIN_AUDIOMUSEAI_MIX_FILTER_XMAS_DESC
+	EN	Leave out tracks with a Christmas or Xmas genre, except in December.
+
+PLUGIN_AUDIOMUSEAI_MIX_EXCLUDE_ARTISTS
+	EN	Never include these artists
+
+PLUGIN_AUDIOMUSEAI_MIX_EXCLUDE_ARTISTS_DESC
+	EN	One artist per line, spelled as in your library.
+
+PLUGIN_AUDIOMUSEAI_MIX_EXCLUDE_ALBUMS
+	EN	Never include these albums
+
+PLUGIN_AUDIOMUSEAI_MIX_EXCLUDE_ALBUMS_DESC
+	EN	One per line, as "Artist//Album" - or just "Album" to match that album title by any artist.
+
+PLUGIN_AUDIOMUSEAI_MIX_FILTER_GENRES
+	EN	Stay within the seed's genre group
+
+PLUGIN_AUDIOMUSEAI_MIX_FILTER_GENRES_DESC
+	EN	Only include tracks from the same genre group (below) as the track(s) the mix is built from. If the seed isn't in any group, tracks that are in a group are left out instead.
+
+PLUGIN_AUDIOMUSEAI_MIX_GENRE_GROUPS
+	EN	Genre groups
+
+PLUGIN_AUDIOMUSEAI_MIX_GENRE_GROUPS_DESC
+	EN	One group per line, genres separated by semicolons - e.g. "Metal; Hard Rock; Heavy Metal". To keep a mix to a single genre, make a group with just that genre.
+
+PLUGIN_AUDIOMUSEAI_MIX_USE_TRACK_GENRE
+	EN	Ungrouped genres are their own group
+
+PLUGIN_AUDIOMUSEAI_MIX_USE_TRACK_GENRE_DESC
+	EN	A genre that isn't in any group above counts as a group of its own, so a mix from it stays in that genre.
+
+PLUGIN_AUDIOMUSEAI_MIX_MATCH_ALL_GENRES
+	EN	Match all of a track's genres
+
+PLUGIN_AUDIOMUSEAI_MIX_MATCH_ALL_GENRES_DESC
+	EN	A track is only in a group if ALL its genres are in that group. Otherwise ANY one of its genres is enough.
+
+PLUGIN_AUDIOMUSEAI_MIX_SHUFFLE
+	EN	Shuffle mixes
+
+PLUGIN_AUDIOMUSEAI_MIX_SHUFFLE_DESC
+	EN	Pick at random from the best matches (up to twice as many as needed) instead of always taking the closest ones in order, so the same starting point gives a different mix each time.
+
+PLUGIN_AUDIOMUSEAI_MIX_STRICT_SIMILARITY
+	EN	Stricter similarity
+
+PLUGIN_AUDIOMUSEAI_MIX_STRICT_SIMILARITY_DESC
+	EN	For "similar" mixes, also ask AudioMuse to match the mood and stay within its similarity radius. Tighter results, fewer surprises.
+
+PLUGIN_AUDIOMUSEAI_HISTORY_MAX
+	EN	Don't replay a song within
+
+PLUGIN_AUDIOMUSEAI_HISTORY_MAX_DESC
+	EN	How many recently played songs (per player) are kept out of auto-extend and "add similar". Songs already in the queue are always kept out. Resets when Lyrion restarts.
+
+PLUGIN_AUDIOMUSEAI_SECTION_DSTM
+	EN	Don't Stop The Music
+
+PLUGIN_AUDIOMUSEAI_SECTION_DSTM_DESC
+	EN	For the AudioMuse-AI choices in Player Settings > Audio > Don't Stop The Music, and the Dynamic Playlists modes.
+
+PLUGIN_AUDIOMUSEAI_DSTM_TRACKS
+	EN	Tracks added each time
+
+PLUGIN_AUDIOMUSEAI_DSTM_TRACKS_DESC
+	EN	How many tracks to add when the queue runs low.
+
+PLUGIN_AUDIOMUSEAI_DSTM_SEED_TRACKS
+	EN	Seed tracks
+
+PLUGIN_AUDIOMUSEAI_DSTM_SEED_TRACKS_DESC
+	EN	How many tracks from the end of the queue the next batch is based on. More than one are blended together: fewer seeds give a sharper, more focused mix, more give a broader one.
+
+PLUGIN_AUDIOMUSEAI_DSTM_SEED_STRICT
+	EN	Always use the last tracks as seeds
+
+PLUGIN_AUDIOMUSEAI_DSTM_SEED_STRICT_DESC
+	EN	On: use exactly the last N tracks. Off: pick the seeds at random from a few more recent tracks, for more variety.
+
+PLUGIN_AUDIOMUSEAI_DSTM_LASTMIX_FALLBACK
+	EN	Fall back to Last.fm mixer
+
+PLUGIN_AUDIOMUSEAI_DSTM_LASTMIX_FALLBACK_DESC
+	EN	If AudioMuse finds nothing to add and the Last.fm Mixer plugin is installed, use it instead of Lyrion's random mix.
+
+PLUGIN_AUDIOMUSEAI_SECTION_INTERFACE
+	EN	Interface
+
+PLUGIN_AUDIOMUSEAI_SECTION_INTERFACE_DESC
+	EN	Choose how much of the plugin appears in Lyrion's menus.
+
+PLUGIN_AUDIOMUSEAI_UI_MODE
+	EN	Menus
+
+PLUGIN_AUDIOMUSEAI_UI_MODE_DESC
+	EN	"Don't Stop The Music only" hides the AudioMuse-AI menu under My Music, the context-menu entries and the web page, and keeps just the Don't Stop The Music choices and these settings - for when you only want AudioMuse to keep the music going.
+
+PLUGIN_AUDIOMUSEAI_UI_MODE_FULL
+	EN	Full (all menus)
+
+PLUGIN_AUDIOMUSEAI_UI_MODE_DSTM
+	EN	Don't Stop The Music only
+
+PLUGIN_AUDIOMUSEAI_DSTM_HYPERBOLIC
+	EN	AudioMuse-AI: Hyperbolic map mix
+
+PLUGIN_AUDIOMUSEAI_DYNAMIC_HYPERBOLIC
+	EN	Continuous: hyperbolic map (close neighbours)
+
+PLUGIN_AUDIOMUSEAI_INFO_ARTIST_MIX
+	EN	AudioMuse: mix from this artist
+
+PLUGIN_AUDIOMUSEAI_INFO_ALBUM_MIX
+	EN	AudioMuse: mix from this album
+
+PLUGIN_AUDIOMUSEAI_INFO_GENRE_MIX
+	EN	AudioMuse: mix from this genre
+
+PLUGIN_AUDIOMUSEAI_MIX
+	EN	AudioMuse-AI mix
+
+PLUGIN_AUDIOMUSEAI_MIX_LASTMIX
+	EN	AudioMuse-AI found nothing for that - started a Last.fm mix instead.

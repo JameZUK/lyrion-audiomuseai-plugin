@@ -40,6 +40,9 @@ run '05-antirepeat (queue de-dup / auto-extend simulation)' \
 run '07-web       (default web UI adapter)' \
     "PERL5LIB='$STUBS' perl '$HERE/07-web.pl'"
 
+run '08-mix       (mix filters, seeds, audiomuse:// URLs, DSTM-only mode)' \
+    "PERL5LIB='$STUBS' perl '$HERE/08-mix.pl'"
+
 run '04-live    (against $AUDIOMUSE_URL — skipped if no token)' \
     "bash '$HERE/04-live.sh'"
 

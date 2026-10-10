@@ -40,6 +40,7 @@ my %RUN_CMDS = (
 	explore_track  => [qw(track_id mode)],
 	similar_artist => [qw(artist artist_id)],
 	alchemy_album  => [qw(album_id)],
+	mix            => [qw(artist_id album_id genre_id track_id)],
 );
 # XMLBrowser re-runs the coderefs of every level above the one being shown,
 # and a browser refresh / back re-runs the current one. That's harmless for
@@ -59,8 +60,13 @@ my %MENU_CMD = map { $_ => 1 } qw(
 
 my %_recent;   # "clientid|cmd..." => [epoch, feed]
 
+# The Home -> My Music link (hidden in "Don't Stop The Music only" mode).
+sub setVisible {
+	my $on = shift;
+	Slim::Web::Pages->addPageLinks('browse', { PLUGIN_AUDIOMUSEAI => $on ? URL : undef });
+}
+
 sub init {
-	Slim::Web::Pages->addPageLinks('browse', { PLUGIN_AUDIOMUSEAI => URL });
 	Slim::Web::Pages->addPageLinks('icons',
 		{ PLUGIN_AUDIOMUSEAI => 'plugins/AudioMuseAI/html/images/icon_svg.png' });
 	Slim::Web::Pages->addPageFunction(URL, sub {

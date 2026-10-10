@@ -19,6 +19,35 @@
 
 The settings page also shows a live **Server Status panel** — current task (status message, state, progress %, running time, last log line) plus a **Library coverage** section (artists, albums, CLAP-indexed tracks, clustered tracks, top moods). It auto-refreshes every 10 s while a task is running.
 
+## Mix filters
+
+Applied to every mix the plugin builds — similar tracks, moods, instant playlists, Don't Stop The Music and the rest — but not to Album Creation or Find Path, which keep their own running order. The ideas come from Craig Drummond's [AudioMuse Mixer](https://github.com/CDrummond/lms-audiomuse-mixer).
+
+| Setting | Default | What it does |
+|---|---|---|
+| **Don't repeat an artist within** | 10 | Tracks before the same artist can come round again. Relaxed automatically if there aren't enough other candidates. 0 = off. |
+| **Don't repeat an album within** | 20 | Same for albums (Various Artists albums exempt). |
+| **Minimum / maximum track length** | 0 / 0 | In seconds — skip interludes, or anything over e.g. 600 s. 0 = no limit. |
+| **Christmas music only in December** | on | Leaves out Christmas / Xmas genre tracks the rest of the year. |
+| **Never include these artists / albums** | — | One per line; albums as `Artist//Album` or just `Album`. |
+| **Stay within the seed's genre group** + **Genre groups** | off | Groups like `Metal; Hard Rock; Heavy Metal`, one per line. A mix only uses tracks from the seed track's group(s); if the seed isn't grouped, grouped tracks are left out. Options: treat ungrouped genres as their own group, and require *all* of a track's genres to be in the group. |
+| **Shuffle mixes** | on | Picks at random from the best matches (up to twice as many as needed), so the same seed gives a different mix each time. |
+| **Stricter similarity** | off | Asks AudioMuse to also match mood and stay within its similarity radius. |
+| **Don't replay a song within** | 1000 | Recently played songs per player kept out of auto-extend and "add similar". |
+
+## Don't Stop The Music
+
+| Setting | Default | What it does |
+|---|---|---|
+| **Tracks added each time** | 10 | How many tracks each top-up adds. |
+| **Seed tracks** | 1 | How many tracks from the end of the queue each top-up is based on (several are blended). |
+| **Always use the last tracks as seeds** | off | On: exactly the last N. Off: picked at random from a few more recent tracks, for variety. |
+| **Fall back to Last.fm mixer** | on | If AudioMuse finds nothing and the Last.fm Mixer plugin is installed, use it rather than Lyrion's random mix. |
+
+## Interface
+
+**Menus → Don't Stop The Music only** hides the AudioMuse-AI menu under My Music, the context-menu entries and the web page, leaving just the Don't Stop The Music choices (Player Settings → Audio) and this settings page. Switch back to **Full** any time; no restart needed.
+
 ## Auto-name strategies
 
 How **Save current queue as playlist** titles a playlist when no name is typed:
@@ -33,16 +62,17 @@ How **Save current queue as playlist** titles a playlist when no name is typed:
 
 > **No AI is used for naming.** AudioMuse-AI's CLAP search is an audio-embedding model, not an LLM. Names are derived from local data — timestamp, queue contents, your typed prompt, or the mood label.
 
-## Don't Stop The Music
+## Don't Stop The Music providers
 
-The plugin registers four native **Don't Stop The Music** providers, so AudioMuse-AI appears in the per-player dropdown alongside MusicIP / SugarCube / LastMix:
+The plugin registers five native **Don't Stop The Music** providers, so AudioMuse-AI appears in the per-player dropdown alongside MusicIP / SugarCube / LastMix:
 
 - **AudioMuse-AI: Similar to recent tracks** — extends the queue with tracks similar to what was just queued.
 - **AudioMuse-AI: Lyrics + sound mix (SemGrove)** — the same, on the merged lyrics + audio index.
+- **AudioMuse-AI: Hyperbolic map mix** — close neighbours on AudioMuse's hyperbolic map.
 - **AudioMuse-AI: Mix by recent album (broader)** — blends the whole album of the last queued track.
 - **AudioMuse-AI: Sonic fingerprint** — extends from your listening history's sonic fingerprint.
 
-All four skip anything already queued or recently played on that player, and other copies of the same song — see [No repeats](USAGE.md#no-repeats).
+All five skip anything already queued or recently played on that player, and other copies of the same song — see [No repeats](USAGE.md#no-repeats).
 
 Set it under **Player Settings → Audio → Don't Stop The Music**. It's per-player, and when active it takes over auto-extend for that player (the plugin's own Dynamic Playlists auto-extend stands down to avoid double-filling).
 

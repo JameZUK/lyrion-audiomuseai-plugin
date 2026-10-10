@@ -30,9 +30,17 @@ sub get {
     return $store{$self->{_ns}}{$key};
 }
 
+our %changeHandlers;   # "ns|key" => [ coderefs ]
 sub set {
     my ($self, $key, $val) = @_;
     $store{$self->{_ns}}{$key} = $val;
+    $_->($key, $val) for @{ $changeHandlers{"$self->{_ns}|$key"} || [] };
+    return 1;
+}
+
+sub setChange {
+    my ($self, $cb, @keys) = @_;
+    push @{ $changeHandlers{"$self->{_ns}|$_"} }, $cb for @keys;
     return 1;
 }
 

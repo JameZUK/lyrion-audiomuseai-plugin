@@ -260,10 +260,13 @@ sub task_status {
 }
 
 sub similar_tracks {
-	my ($item_id, $n, $cb_ok, $cb_err) = @_;
+	my ($item_id, $n, $cb_ok, $cb_err, $strict) = @_;
 	$n ||= 20;
 	my $path = sprintf('/api/similar_tracks?item_id=%s&n=%d&eliminate_duplicates=true',
 		uri_escape_utf8($item_id), $n);
+	# "Stricter similarity": also require similar mood features and stay
+	# within the similarity radius (as AudioMuse Mixer does).
+	$path .= '&mood_similarity=true&radius_similarity=true' if $strict;
 	_get($path, $cb_ok, $cb_err, TIMEOUT_QUERY);
 }
 

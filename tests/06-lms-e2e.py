@@ -17,7 +17,7 @@ Usage:
 Library-specific seeds (defaults are the maintainer's library) can be set via
 env: E2E_SEED (track id), E2E_SEED2 / E2E_SEED3 (two other DISTINCT songs),
 E2E_ARTIST_ID + E2E_ARTIST (a library artist), E2E_TYPED_ARTIST,
-E2E_PATH_ARTIST (destination artist for Find Path), E2E_STALE_ID (a track
+E2E_PATH_ARTIST (destination artist for Find Path), E2E_GENRE (a big genre), E2E_STALE_ID (a track
 AudioMuse knows under an old id; renumbered-track tests skip if unset).
 Admin actions (analysis / clustering / cancel / rebuild radios) are never run.
 """
@@ -161,8 +161,14 @@ def extend_run(label, start_cmd, provider=None, target=150, max_steps=80):
         steps += 1
     q = queue()[0]
     di, dk = dupes(q)
-    ok = len(q) >= target and not di and not dk
-    record(label, ok, f'queue grew to {len(q)} in {steps} skips; dupIds={len(di)} dupSongs={len(dk)}'
+    # Artist spacing (mix filter, default 10): count same-artist repeats
+    # within 10 tracks among the auto-added part of the queue.
+    added = q[3:]
+    close = sum(1 for i, x in enumerate(added)
+                if any(y.get('artist') == x.get('artist') for y in added[max(0, i - 10):i]))
+    ok = len(q) >= target and not di and not dk and close <= len(added) // 10
+    record(label, ok, f'queue grew to {len(q)} in {steps} skips; dupIds={len(di)} dupSongs={len(dk)}; '
+           f'same artist within 10: {close}'
            + (' e.g. ' + ', '.join(dk[:3]) if dk else ''))
     if provider:
         rpc(['playerpref', 'plugin.dontstopthemusic:provider', '0'])
@@ -301,8 +307,49 @@ if __name__ == '__main__':
         extend_run('dyn_fingerprint long run', ['dyn_fingerprint'])
         extend_run('dyn_semgrove long run', ['dyn_semgrove'])
         extend_run('dyn_album long run', ['dyn_album'])
-        for prov in ('SIMILAR', 'ALBUM', 'FINGERPRINT', 'SEMGROVE'):
+        extend_run('dyn_hyperbolic long run', ['dyn_hyperbolic'])
+        for prov in ('SIMILAR', 'ALBUM', 'FINGERPRINT', 'SEMGROVE', 'HYPERBOLIC'):
             extend_run(f'native_dstm {prov} long run', None, provider=f'PLUGIN_AUDIOMUSEAI_DSTM_{prov}')
+
+        # ---- 0.7.0: mixes from artist / album / genre / track ----
+        alb = rpc(['albums', '0', '1', f'artist_id:{ARTIST_ID}'], player='').get('albums_loop', [{}])[0].get('id')
+        GENRE = ENV('E2E_GENRE', 'Rock')
+        gen = next((g.get('id') for g in rpc(['genres', '0', '200', f'search:{GENRE}'], player='').get('genres_loop', [])
+                    if (g.get('genre') or '').lower() == GENRE.lower()), None)
+        run('mix artist', 'load', 'mix', artist_id=ARTIST_ID, count=20)
+        q = queue()[0]
+        record('mix artist: includes the seed artist', any(ARTIST.lower() in (x.get('artist') or '').lower() for x in q[:1]),
+               (q[0].get('artist') if q else '') or '')
+        if alb:
+            run('mix album', 'load', 'mix', album_id=alb, count=20)
+        if gen:
+            run('mix genre', 'load', 'mix', genre_id=gen, count=20)
+        run('mix track', 'load', 'mix', track_id=SEED, count=15)
+        q = queue()[0]
+        record('mix track: starts with the seed track', bool(q) and str(q[0]['id']) == SEED, str(q[0]['id']) if q else '')
+
+        # ---- 0.7.0: audiomuse:// favourites URL ----
+        if not ONLY or 'audiomuse_url' in ONLY:
+            before = [str(x['id']) for x in queue()[0]]
+            rpc(['playlist', 'play', f'audiomuse://?artist={ARTIST.replace(" ", "%20")}&count=15'])
+            settle(timeout=60)
+            q = queue()[0]; di, dk = dupes(q)
+            ok = [str(x['id']) for x in q] != before and len(q) >= 10 and not di and not dk
+            record('audiomuse_url plays a mix', ok, f'queue {len(q)} dupIds={len(di)} dupSongs={len(dk)}')
+
+        # ---- 0.7.0: Don't Stop The Music only mode hides the menus ----
+        if not ONLY or 'ui_mode' in ONLY:
+            def has_menu():
+                return any(i.get('id') == 'pluginAudioMuseAI'
+                           for i in rpc(['menu', '0', '500', 'direct:1']).get('item_loop', []))
+            orig = rpc(['pref', 'plugin.audiomuseai:ui_mode', '?'], player='').get('_p2') or 'full'
+            rpc(['pref', 'plugin.audiomuseai:ui_mode', 'dstm'], player=''); time.sleep(1)
+            hidden = not has_menu()
+            rpc(['pref', 'plugin.audiomuseai:ui_mode', 'full'], player=''); time.sleep(1)
+            back = has_menu()
+            rpc(['pref', 'plugin.audiomuseai:ui_mode', orig], player='')
+            record('ui_mode dstm hides the My Music entry, full restores it', hidden and back,
+                   f'hidden={hidden} restored={back}')
 
         # ---- save playlist ----
         r = am('save_playlist', name='__amtest_save')

@@ -91,6 +91,7 @@ The plugin registers info-providers for artists, tracks, and albums. **Browse no
 - **AudioMuse: create an album around this track** — on any track (Album Creation)
 - **AudioMuse: niche deep cuts like this track** — on any track (hyperbolic *niche* explore)
 - **AudioMuse: alchemy from this album** — on any album (seeds alchemy with all the album's tracks)
+- **AudioMuse: mix from this artist / album / genre** — on any artist, album or genre: a mix seeded with up to 10 of its tracks, with a few of them kept in the mix (one first, others spread through it)
 
 > **Material users — look under "More".** Material's context menu shows only the common actions (Play, Add to queue, Favourites…) at the top, then a **More** entry. The AudioMuse items are inside **More**, not on the first screen. So the path is: long-press (or **⋮**) → **More** → *AudioMuse: …*. (On the default web UI — a track / artist / album's information page — and on iPeng they appear directly in the list; on the default web UI since v0.6.1.)
 
@@ -103,10 +104,14 @@ This gives you Lyrion's native filter / letter-jump for free — often the faste
 
 Two ways to keep the queue topped up automatically:
 
-1. **Native Don't Stop The Music** *(recommended)* — Player Settings → Audio → **Don't Stop The Music** → pick one of **AudioMuse-AI: Similar to recent tracks**, **Lyrics + sound mix (SemGrove)**, **Mix by recent album (broader)** or **Sonic fingerprint**. LMS tops up the queue as it nears the end, exactly like MusicIP / SugarCube. Per-player. (With only one track in the queue, Lyrion itself waits until that track is half played before topping up.)
+1. **Native Don't Stop The Music** *(recommended)* — Player Settings → Audio → **Don't Stop The Music** → pick one of **AudioMuse-AI: Similar to recent tracks**, **Lyrics + sound mix (SemGrove)**, **Hyperbolic map mix**, **Mix by recent album (broader)** or **Sonic fingerprint**. How many tracks it adds, how many recent tracks it's seeded from, and a Last.fm fallback are in [Settings → Don't Stop The Music](SETTINGS.md#dont-stop-the-music). LMS tops up the queue as it nears the end, exactly like MusicIP / SugarCube. Per-player. (With only one track in the queue, Lyrion itself waits until that track is half played before topping up.)
 2. **Plugin Dynamic Playlists** — start a mode from the **Dynamic Playlists** submenu. When the queue drops to ≤ 3 remaining, the plugin adds 10 more. (Starting a mode enables this automatically.)
 
 If you've selected a native AudioMuse provider for a player, the plugin's own Dynamic Playlists auto-extend stands down for that player, so the queue isn't topped up twice.
+
+#### Mix filters
+
+Everything the plugin queues (except Album Creation and Find Path, which keep their own order) goes through the **Mix filters** in the settings: artist / album spacing, track-length limits, the Christmas filter, excluded artists and albums, genre groups and shuffling. See [Settings → Mix filters](SETTINGS.md#mix-filters).
 
 #### No repeats
 
@@ -152,3 +157,17 @@ It asks AudioMuse for extra candidates so a full batch survives the filtering, a
 | Library coverage | Settings → Server Status panel |
 | Analysis / clustering / cancel | Server Status / Admin |
 | Auto-extend | Don't Stop The Music providers + Dynamic Playlists |
+
+## Favourites / audiomuse:// URLs
+
+Any AudioMuse mix can be saved as a Lyrion favourite (or used on a Material custom button or from Home Assistant) as an `audiomuse://` URL. Playing it builds a fresh mix and replaces the queue:
+
+```
+audiomuse://?artist=Iron%20Maiden
+audiomuse://?artist=Iron%20Maiden&album=Somewhere%20In%20Time
+audiomuse://?genre=Heavy%20Metal
+audiomuse://?path=%2Fmedia%2Fmusic%2FIron%20Maiden%2FSomewhere%20In%20Time%2F02%20Wasted%20Years.mp3
+audiomuse://?track_id=123         (also artist_id / album_id / genre_id)
+```
+
+Add `&count=15` to set the length, and `&dstm=1` to switch the player's Don't Stop The Music to AudioMuse so it keeps going afterwards. URL-escape names (as above) to be safe. If nothing in your library matches and the Last.fm Mixer plugin is installed, an artist URL falls back to a Last.fm mix. (Idea from AudioMuse Mixer's `audiomusemixer://`.)

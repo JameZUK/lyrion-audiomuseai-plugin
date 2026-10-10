@@ -3,5 +3,6 @@ use strict;
 use warnings;
 
 sub registerPluginMenu { 1 }
+sub deleteMenuItem { 1 }
 
 1;

@@ -303,6 +303,18 @@ sub fire_get {
         $url =~ m{/chat/api/chatPlaylist$} && $body->{n} == 30 && $body->{userInput} eq '80s synth',
         encode_json($body));
 }
+{
+    my $url = fire_get(sub {
+        Plugins::AudioMuseAI::API::similar_tracks('7', 30, sub {}, sub {}, 1);
+    });
+    check('similar_tracks(strict): adds mood + radius similarity',
+        scalar(($url // '') =~ /&mood_similarity=true&radius_similarity=true$/), $url // '');
+    $url = fire_get(sub {
+        Plugins::AudioMuseAI::API::similar_tracks('7', 30, sub {}, sub {});
+    });
+    check('similar_tracks: not strict by default', scalar(($url // '') !~ /mood_similarity/), $url // '');
+}
+
 # ---------------------------------------------------------------------------
 # server_name — AudioMuse-AI multi-server selector (#7). Blank = no `server`
 # param at all. Set = appended to the query string of every GET and added to

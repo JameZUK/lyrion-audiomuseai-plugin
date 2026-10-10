@@ -4,7 +4,7 @@ use strict;
 use warnings;
 use Exporter 'import';
 
-our @EXPORT_OK = qw(uri_escape uri_escape_utf8);
+our @EXPORT_OK = qw(uri_escape uri_escape_utf8 uri_unescape);
 
 # Minimal RFC 3986 unreserved-chars escaper. Plugin only uses
 # uri_escape_utf8 with track ids / artist names; this is sufficient.
@@ -15,5 +15,11 @@ sub uri_escape_utf8 {
     return $s;
 }
 *uri_escape = \&uri_escape_utf8;
+
+sub uri_unescape {
+    my $s = shift // '';
+    $s =~ s/%([0-9A-Fa-f]{2})/chr(hex($1))/ge;
+    return $s;
+}
 
 1;

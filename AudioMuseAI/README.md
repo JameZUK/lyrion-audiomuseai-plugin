@@ -115,10 +115,15 @@ curl -X POST http://lyrion:9000/jsonrpc.js -H "Content-Type: application/json" -
 # instant playlist with DCLAP concept steering (v3.5.1)
 {"params":["bb:bb:55:90:9c:db",["audiomuseai","instant","prompt:jazz with viola | +viola x3, -drums"]]}
 
+# mixes (0.7.0): artist_id | album_id | genre_id | track_id, optional count:N, dstm:1
+{"params":["bb:bb:55:90:9c:db",["audiomuseai","mix","genre_id:12","count:20"]]}
+# or via URL:  playlist play audiomuse://?artist=Iron%20Maiden&count=15&dstm=1
+
 # dynamic playlists (sets DSTM mode + does an immediate fill)
 {"params":["bb:bb:55:90:9c:db",["audiomuseai","dyn_similar"]]}
 {"params":["bb:bb:55:90:9c:db",["audiomuseai","dyn_semgrove"]]}
 {"params":["bb:bb:55:90:9c:db",["audiomuseai","dyn_album"]]}
+{"params":["bb:bb:55:90:9c:db",["audiomuseai","dyn_hyperbolic"]]}
 {"params":["bb:bb:55:90:9c:db",["audiomuseai","dyn_fingerprint"]]}
 {"params":["bb:bb:55:90:9c:db",["audiomuseai","dyn_stop"]]}
 

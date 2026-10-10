@@ -41,12 +41,51 @@
 .am-ok    { color: #2ea043; }   /* a tad lighter than 'green' */
 .am-fail  { color: #f85149; }   /* a tad brighter than 'red' */
 .am-info  { opacity: 0.65; }
+.am-section-title {
+	font-weight: bold;
+}
 .am-section-divider {
 	margin-top: 1.5em;
 	padding-top: 1em;
 	border-top: 1px solid rgba(127, 127, 127, 0.25);
 }
 </style>
+
+<script>
+/* Number boxes and multi-line fields: give them exactly the look of this
+   page's own text boxes on whatever skin / theme is active. (Dark themes
+   style text inputs but leave these as browser-white boxes.) */
+document.addEventListener('DOMContentLoaded', function () {
+	var ref = document.querySelector('input[name="pref_url"]');
+	if (!ref || !window.getComputedStyle) return;
+	var cs = getComputedStyle(ref);
+	var els = document.querySelectorAll('input[type="number"][name^="pref_"], textarea[name^="pref_"]');
+	for (var i = 0; i < els.length; i++) {
+		var el = els[i];
+		el.style.backgroundColor = cs.backgroundColor;
+		el.style.color           = cs.color;
+		el.style.fontFamily      = cs.fontFamily;
+		el.style.fontSize        = cs.fontSize;
+		el.style.borderRadius    = cs.borderRadius;
+		if (el.tagName === 'TEXTAREA') {
+			// a full (subtle) frame reads better than an underline for
+			// several lines
+			el.style.border  = cs.borderBottomWidth + ' solid ' + cs.borderBottomColor;
+			el.style.padding = '4px';
+			el.style.width   = '100%';
+			el.style.maxWidth = '40em';
+			el.style.boxSizing = 'border-box';
+		} else {
+			el.style.borderTop    = cs.borderTop;
+			el.style.borderLeft   = cs.borderLeft;
+			el.style.borderRight  = cs.borderRight;
+			el.style.borderBottom = cs.borderBottom;
+			el.style.padding      = cs.padding;
+			el.style.width        = '6em';
+		}
+	}
+});
+</script>
 
 <div class="prefsLine">
 	<div class="prefsLabel">[% "PLUGIN_AUDIOMUSEAI_URL" | string %]</div>
@@ -127,6 +166,155 @@
 	<div class="prefsDesc">[% "PLUGIN_AUDIOMUSEAI_AUTO_SAVE_ALBUM_DESC" | string %]</div>
 	<div class="prefsValue">
 		<input type="checkbox" name="pref_auto_save_album" value="1" [% IF prefs.auto_save_album %]checked="checked"[% END %] />
+	</div>
+</div>
+
+<div class="prefsLine am-section-divider">
+	<div class="prefsLabel am-section-title">[% "PLUGIN_AUDIOMUSEAI_SECTION_MIX" | string %]</div>
+	<div class="prefsDesc">[% "PLUGIN_AUDIOMUSEAI_SECTION_MIX_DESC" | string %]</div>
+</div>
+<div class="prefsLine">
+	<div class="prefsLabel">[% "PLUGIN_AUDIOMUSEAI_MIX_NO_REPEAT_ARTIST" | string %]</div>
+	<div class="prefsDesc">[% "PLUGIN_AUDIOMUSEAI_MIX_NO_REPEAT_ARTIST_DESC" | string %]</div>
+	<div class="prefsValue">
+		<input type="number" name="pref_mix_no_repeat_artist" value="[% prefs.mix_no_repeat_artist | html %]" min="0" max="200" />
+	</div>
+</div>
+<div class="prefsLine">
+	<div class="prefsLabel">[% "PLUGIN_AUDIOMUSEAI_MIX_NO_REPEAT_ALBUM" | string %]</div>
+	<div class="prefsDesc">[% "PLUGIN_AUDIOMUSEAI_MIX_NO_REPEAT_ALBUM_DESC" | string %]</div>
+	<div class="prefsValue">
+		<input type="number" name="pref_mix_no_repeat_album" value="[% prefs.mix_no_repeat_album | html %]" min="0" max="200" />
+	</div>
+</div>
+<div class="prefsLine">
+	<div class="prefsLabel">[% "PLUGIN_AUDIOMUSEAI_MIX_MIN_DURATION" | string %]</div>
+	<div class="prefsDesc">[% "PLUGIN_AUDIOMUSEAI_MIX_MIN_DURATION_DESC" | string %]</div>
+	<div class="prefsValue">
+		<input type="number" name="pref_mix_min_duration" value="[% prefs.mix_min_duration | html %]" min="0" max="3600" />
+	</div>
+</div>
+<div class="prefsLine">
+	<div class="prefsLabel">[% "PLUGIN_AUDIOMUSEAI_MIX_MAX_DURATION" | string %]</div>
+	<div class="prefsDesc">[% "PLUGIN_AUDIOMUSEAI_MIX_MAX_DURATION_DESC" | string %]</div>
+	<div class="prefsValue">
+		<input type="number" name="pref_mix_max_duration" value="[% prefs.mix_max_duration | html %]" min="0" max="7200" />
+	</div>
+</div>
+<div class="prefsLine">
+	<div class="prefsLabel">[% "PLUGIN_AUDIOMUSEAI_MIX_FILTER_XMAS" | string %]</div>
+	<div class="prefsDesc">[% "PLUGIN_AUDIOMUSEAI_MIX_FILTER_XMAS_DESC" | string %]</div>
+	<div class="prefsValue">
+		<input type="checkbox" name="pref_mix_filter_xmas" value="1" [% IF prefs.mix_filter_xmas %]checked="checked"[% END %] />
+	</div>
+</div>
+<div class="prefsLine">
+	<div class="prefsLabel">[% "PLUGIN_AUDIOMUSEAI_MIX_EXCLUDE_ARTISTS" | string %]</div>
+	<div class="prefsDesc">[% "PLUGIN_AUDIOMUSEAI_MIX_EXCLUDE_ARTISTS_DESC" | string %]</div>
+	<div class="prefsValue">
+		<textarea name="pref_mix_exclude_artists" rows="4" cols="50">[% prefs.mix_exclude_artists | html %]</textarea>
+	</div>
+</div>
+<div class="prefsLine">
+	<div class="prefsLabel">[% "PLUGIN_AUDIOMUSEAI_MIX_EXCLUDE_ALBUMS" | string %]</div>
+	<div class="prefsDesc">[% "PLUGIN_AUDIOMUSEAI_MIX_EXCLUDE_ALBUMS_DESC" | string %]</div>
+	<div class="prefsValue">
+		<textarea name="pref_mix_exclude_albums" rows="4" cols="50">[% prefs.mix_exclude_albums | html %]</textarea>
+	</div>
+</div>
+<div class="prefsLine">
+	<div class="prefsLabel">[% "PLUGIN_AUDIOMUSEAI_MIX_FILTER_GENRES" | string %]</div>
+	<div class="prefsDesc">[% "PLUGIN_AUDIOMUSEAI_MIX_FILTER_GENRES_DESC" | string %]</div>
+	<div class="prefsValue">
+		<input type="checkbox" name="pref_mix_filter_genres" value="1" [% IF prefs.mix_filter_genres %]checked="checked"[% END %] />
+	</div>
+</div>
+<div class="prefsLine">
+	<div class="prefsLabel">[% "PLUGIN_AUDIOMUSEAI_MIX_GENRE_GROUPS" | string %]</div>
+	<div class="prefsDesc">[% "PLUGIN_AUDIOMUSEAI_MIX_GENRE_GROUPS_DESC" | string %]</div>
+	<div class="prefsValue">
+		<textarea name="pref_mix_genre_groups" rows="4" cols="50">[% prefs.mix_genre_groups | html %]</textarea>
+	</div>
+</div>
+<div class="prefsLine">
+	<div class="prefsLabel">[% "PLUGIN_AUDIOMUSEAI_MIX_USE_TRACK_GENRE" | string %]</div>
+	<div class="prefsDesc">[% "PLUGIN_AUDIOMUSEAI_MIX_USE_TRACK_GENRE_DESC" | string %]</div>
+	<div class="prefsValue">
+		<input type="checkbox" name="pref_mix_use_track_genre" value="1" [% IF prefs.mix_use_track_genre %]checked="checked"[% END %] />
+	</div>
+</div>
+<div class="prefsLine">
+	<div class="prefsLabel">[% "PLUGIN_AUDIOMUSEAI_MIX_MATCH_ALL_GENRES" | string %]</div>
+	<div class="prefsDesc">[% "PLUGIN_AUDIOMUSEAI_MIX_MATCH_ALL_GENRES_DESC" | string %]</div>
+	<div class="prefsValue">
+		<input type="checkbox" name="pref_mix_match_all_genres" value="1" [% IF prefs.mix_match_all_genres %]checked="checked"[% END %] />
+	</div>
+</div>
+<div class="prefsLine">
+	<div class="prefsLabel">[% "PLUGIN_AUDIOMUSEAI_MIX_SHUFFLE" | string %]</div>
+	<div class="prefsDesc">[% "PLUGIN_AUDIOMUSEAI_MIX_SHUFFLE_DESC" | string %]</div>
+	<div class="prefsValue">
+		<input type="checkbox" name="pref_mix_shuffle" value="1" [% IF prefs.mix_shuffle %]checked="checked"[% END %] />
+	</div>
+</div>
+<div class="prefsLine">
+	<div class="prefsLabel">[% "PLUGIN_AUDIOMUSEAI_MIX_STRICT_SIMILARITY" | string %]</div>
+	<div class="prefsDesc">[% "PLUGIN_AUDIOMUSEAI_MIX_STRICT_SIMILARITY_DESC" | string %]</div>
+	<div class="prefsValue">
+		<input type="checkbox" name="pref_mix_strict_similarity" value="1" [% IF prefs.mix_strict_similarity %]checked="checked"[% END %] />
+	</div>
+</div>
+<div class="prefsLine">
+	<div class="prefsLabel">[% "PLUGIN_AUDIOMUSEAI_HISTORY_MAX" | string %]</div>
+	<div class="prefsDesc">[% "PLUGIN_AUDIOMUSEAI_HISTORY_MAX_DESC" | string %]</div>
+	<div class="prefsValue">
+		<input type="number" name="pref_history_max" value="[% prefs.history_max | html %]" min="10" max="5000" />
+	</div>
+</div>
+<div class="prefsLine am-section-divider">
+	<div class="prefsLabel am-section-title">[% "PLUGIN_AUDIOMUSEAI_SECTION_DSTM" | string %]</div>
+	<div class="prefsDesc">[% "PLUGIN_AUDIOMUSEAI_SECTION_DSTM_DESC" | string %]</div>
+</div>
+<div class="prefsLine">
+	<div class="prefsLabel">[% "PLUGIN_AUDIOMUSEAI_DSTM_TRACKS" | string %]</div>
+	<div class="prefsDesc">[% "PLUGIN_AUDIOMUSEAI_DSTM_TRACKS_DESC" | string %]</div>
+	<div class="prefsValue">
+		<input type="number" name="pref_dstm_tracks" value="[% prefs.dstm_tracks | html %]" min="1" max="50" />
+	</div>
+</div>
+<div class="prefsLine">
+	<div class="prefsLabel">[% "PLUGIN_AUDIOMUSEAI_DSTM_SEED_TRACKS" | string %]</div>
+	<div class="prefsDesc">[% "PLUGIN_AUDIOMUSEAI_DSTM_SEED_TRACKS_DESC" | string %]</div>
+	<div class="prefsValue">
+		<input type="number" name="pref_dstm_seed_tracks" value="[% prefs.dstm_seed_tracks | html %]" min="1" max="10" />
+	</div>
+</div>
+<div class="prefsLine">
+	<div class="prefsLabel">[% "PLUGIN_AUDIOMUSEAI_DSTM_SEED_STRICT" | string %]</div>
+	<div class="prefsDesc">[% "PLUGIN_AUDIOMUSEAI_DSTM_SEED_STRICT_DESC" | string %]</div>
+	<div class="prefsValue">
+		<input type="checkbox" name="pref_dstm_seed_strict" value="1" [% IF prefs.dstm_seed_strict %]checked="checked"[% END %] />
+	</div>
+</div>
+<div class="prefsLine">
+	<div class="prefsLabel">[% "PLUGIN_AUDIOMUSEAI_DSTM_LASTMIX_FALLBACK" | string %]</div>
+	<div class="prefsDesc">[% "PLUGIN_AUDIOMUSEAI_DSTM_LASTMIX_FALLBACK_DESC" | string %]</div>
+	<div class="prefsValue">
+		<input type="checkbox" name="pref_dstm_lastmix_fallback" value="1" [% IF prefs.dstm_lastmix_fallback %]checked="checked"[% END %] />
+	</div>
+</div>
+<div class="prefsLine am-section-divider">
+	<div class="prefsLabel am-section-title">[% "PLUGIN_AUDIOMUSEAI_SECTION_INTERFACE" | string %]</div>
+	<div class="prefsDesc">[% "PLUGIN_AUDIOMUSEAI_SECTION_INTERFACE_DESC" | string %]</div>
+</div>
+<div class="prefsLine">
+	<div class="prefsLabel">[% "PLUGIN_AUDIOMUSEAI_UI_MODE" | string %]</div>
+	<div class="prefsDesc">[% "PLUGIN_AUDIOMUSEAI_UI_MODE_DESC" | string %]</div>
+	<div class="prefsValue">
+		<select name="pref_ui_mode">
+			<option value="full" [% 'selected="selected"' IF prefs.ui_mode != 'dstm' %]>[% "PLUGIN_AUDIOMUSEAI_UI_MODE_FULL" | string %]</option>
+			<option value="dstm" [% 'selected="selected"' IF prefs.ui_mode == 'dstm' %]>[% "PLUGIN_AUDIOMUSEAI_UI_MODE_DSTM" | string %]</option>
+		</select>
 	</div>
 </div>
 

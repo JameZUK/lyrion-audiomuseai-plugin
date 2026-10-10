@@ -190,7 +190,7 @@ for my $mode (qw(similar fingerprint semgrove)) {
 {
     my $rows = Plugins::AudioMuseAI::Plugin::_localizeRows([ row(5), { item_id => '3005', title => 'Gone', author => 'Nobody' } ]);
     check('localize: drops ids Lyrion does not have', @$rows == 1 && $rows->[0]{item_id} eq '5',
-        encode_json($rows));
+        encode_json([ map { $_->{item_id} } @$rows ]));
 }
 
 # --- a renumbered Lyrion track still seeds AudioMuse ------------------------

@@ -12,6 +12,10 @@ use Slim::Utils::Strings qw(string cstring);
 use Slim::Utils::Timers;
 
 use Plugins::AudioMuseAI::API;
+use Plugins::AudioMuseAI::Mix;
+use Plugins::AudioMuseAI::ProtocolHandler;
+use Slim::Player::ProtocolHandlers;
+use Slim::Menu::GenreInfo;
 
 # For looking up Lyrion track titles/artists in the alchemy display.
 use Slim::Schema;
@@ -24,7 +28,7 @@ use Slim::Menu::TrackInfo;
 use Slim::Menu::AlbumInfo;
 
 use constant {
-	VERSION             => '0.6.2',
+	VERSION             => '0.7.0',
 	HEALTHCHECK_DELAY   => 5,
 	# Cap search-result menus to keep the UI navigable on hardware
 	# controllers; AudioMuse can return hundreds of tracks for prolific
@@ -99,6 +103,28 @@ sub initPlugin {
 		# AudioMuse multi-server (v3.0+): the AudioMuse name of this Lyrion
 		# server. Blank = AudioMuse's default server.
 		server_name          => '',
+		# --- Mix filters (ideas from CDrummond's AudioMuse Mixer) ---
+		mix_no_repeat_artist => 10,    # no same artist within N tracks
+		mix_no_repeat_album  => 20,    # no same album within N tracks
+		mix_min_duration     => 0,     # seconds; 0 = no minimum
+		mix_max_duration     => 0,     # seconds; 0 = no maximum
+		mix_filter_xmas      => 1,     # Christmas only in December
+		mix_exclude_artists  => '',    # one per line
+		mix_exclude_albums   => '',    # "Artist//Album" or "Album" per line
+		mix_filter_genres    => 0,     # stay within the seeds' genre group
+		mix_genre_groups     => '',    # "Pop; Dance" per line
+		mix_use_track_genre  => 0,
+		mix_match_all_genres => 0,
+		mix_shuffle          => 1,     # shuffle the best 2 x N candidates
+		mix_strict_similarity => 0,    # AudioMuse mood + radius similarity
+		history_max          => HISTORY_MAX,
+		# --- Don't Stop The Music ---
+		dstm_tracks          => 10,    # tracks added per top-up
+		dstm_seed_tracks     => 1,     # seeds blended for each top-up
+		dstm_seed_strict     => 0,     # 1 = exactly the last N; 0 = sample
+		dstm_lastmix_fallback => 1,    # use Last.fm mixer if nothing found
+		# 'full' = menus everywhere; 'dstm' = Don't Stop The Music only.
+		ui_mode              => 'full',
 	});
 
 	# One-time: normalize any pre-existing values that may have come in
@@ -306,69 +332,26 @@ sub initPlugin {
 		[1, 1, 1, \&_dynamicSemGrove]);
 	Slim::Control::Request::addDispatch(['audiomuseai', 'dyn_album'],
 		[1, 1, 1, \&_dynamicAlbum]);
-
-	# Top-level menu under My Music. The 'icon' field is honoured by
-	# Material, default web UI, iPeng, and Squeezer (where it shows
-	# next to the menu entry under My Music).
-	my @items = ({
-		text    => string('PLUGIN_AUDIOMUSEAI'),
-		id      => 'pluginAudioMuseAI',
-		weight  => 80,
-		node    => 'myMusic',
-		icon    => 'plugins/AudioMuseAI/html/images/icon_svg.png',
-		actions => {
-			go => {
-				cmd    => ['audiomuseai', 'menu'],
-				player => 0,
-			},
-		},
-		window  => { menustyle => 'text' },
-	});
-	Slim::Control::Jive::registerPluginMenu(\@items, 'myMusic');
+	Slim::Control::Request::addDispatch(['audiomuseai', 'dyn_hyperbolic'],
+		[1, 1, 1, \&_dynamicHyperbolic]);
 
 	Slim::Control::Request::subscribe(\&_onNewSong,
 		[['playlist'], ['newsong']]);
 
-	# Hook into Lyrion's standard browse so users can pick artists/tracks
-	# via the native UI (with all its filter / letter-jump goodness).
-	Slim::Menu::ArtistInfo->registerInfoProvider(
-		audiomuseaiSimilarArtist => (
-			after => 'top',
-			func  => \&_artistInfoSimilar,
-		),
-	);
-	Slim::Menu::TrackInfo->registerInfoProvider(
-		audiomuseaiSimilarTrack => (
-			after => 'top',
-			func  => \&_trackInfoSimilar,
-		),
-	);
-	Slim::Menu::TrackInfo->registerInfoProvider(
-		audiomuseaiSemGroveTrack => (
-			after => 'audiomuseaiSimilarTrack',
-			func  => \&_trackInfoSemGrove,
-		),
-	);
-	Slim::Menu::TrackInfo->registerInfoProvider(
-		audiomuseaiAlbumFromTrack => (
-			after => 'audiomuseaiSemGroveTrack',
-			func  => sub { _trackInfoItem(@_[0 .. 2], 'PLUGIN_AUDIOMUSEAI_INFO_ALBUM_TRACK',
-				['audiomuseai', 'album_track']) },
-		),
-	);
-	Slim::Menu::TrackInfo->registerInfoProvider(
-		audiomuseaiExploreTrack => (
-			after => 'audiomuseaiAlbumFromTrack',
-			func  => sub { _trackInfoItem(@_[0 .. 2], 'PLUGIN_AUDIOMUSEAI_INFO_EXPLORE_TRACK',
-				['audiomuseai', 'explore_track'], { mode => 'niche' }) },
-		),
-	);
-	Slim::Menu::AlbumInfo->registerInfoProvider(
-		audiomuseaiAlbumAlchemy => (
-			after => 'top',
-			func  => \&_albumInfoAlchemy,
-		),
-	);
+	# Mixes from an artist / album / track / genre (also behind the
+	# audiomuse:// favourites URL).
+	Slim::Control::Request::addDispatch(['audiomuseai', 'mix'],
+		[1, 1, 1, \&_mixCommand]);
+	Slim::Player::ProtocolHandlers->registerHandler(
+		audiomuse => 'Plugins::AudioMuseAI::ProtocolHandler');
+
+	# Menus (My Music entry, context menus, web page) — or, in
+	# "Don't Stop The Music only" mode, none of them.
+	_applyUiMode();
+	$prefs->setChange(\&_applyUiMode, 'ui_mode');
+	# A rescan renumbers artists / albums / genres: re-resolve the filters.
+	Slim::Control::Request::subscribe(sub { Plugins::AudioMuseAI::Mix::resetCaches() },
+		[['rescan'], ['done']]);
 
 	# --- Native "Don't Stop The Music" providers (issue #2) ----------------
 	# Surface AudioMuse-AI in LMS's per-player "Don't Stop The Music"
@@ -386,6 +369,8 @@ sub initPlugin {
 			'PLUGIN_AUDIOMUSEAI_DSTM_FINGERPRINT', \&_dstmMixFingerprint);
 		Slim::Plugin::DontStopTheMusic::Plugin->registerHandler(
 			'PLUGIN_AUDIOMUSEAI_DSTM_SEMGROVE',    \&_dstmMixSemGrove);
+		Slim::Plugin::DontStopTheMusic::Plugin->registerHandler(
+			'PLUGIN_AUDIOMUSEAI_DSTM_HYPERBOLIC',  \&_dstmMixHyperbolic);
 		$log->info("registered Don't Stop The Music providers");
 	}
 	else {
@@ -399,6 +384,82 @@ sub initPlugin {
 	my $when = time() + HEALTHCHECK_DELAY;
 	Slim::Utils::Timers::setTimer(undef, $when, \&_healthCheck);
 	push @_timers, [undef, $when, \&_healthCheck];
+}
+
+# ---------------------------------------------------------------------------
+# Interface mode: 'full' (My Music entry, context menus, web page) or 'dstm'
+# ("Don't Stop The Music only": just the DSTM providers and settings, for
+# people who only want AudioMuse to keep the music going).
+# ---------------------------------------------------------------------------
+
+my $_uiRegistered = 0;
+
+my @INFO_PROVIDERS = (
+	[ 'Slim::Menu::ArtistInfo', audiomuseaiSimilarArtist => { after => 'top', func => \&_artistInfoSimilar } ],
+	[ 'Slim::Menu::ArtistInfo', audiomuseaiArtistMix => { after => 'audiomuseaiSimilarArtist',
+		func => sub { _objInfoItem($_[2], 'PLUGIN_AUDIOMUSEAI_INFO_ARTIST_MIX', 'artist_id') } } ],
+	[ 'Slim::Menu::TrackInfo', audiomuseaiSimilarTrack => { after => 'top', func => \&_trackInfoSimilar } ],
+	[ 'Slim::Menu::TrackInfo', audiomuseaiSemGroveTrack => { after => 'audiomuseaiSimilarTrack', func => \&_trackInfoSemGrove } ],
+	[ 'Slim::Menu::TrackInfo', audiomuseaiAlbumFromTrack => { after => 'audiomuseaiSemGroveTrack',
+		func => sub { _trackInfoItem(@_[0 .. 2], 'PLUGIN_AUDIOMUSEAI_INFO_ALBUM_TRACK', ['audiomuseai', 'album_track']) } } ],
+	[ 'Slim::Menu::TrackInfo', audiomuseaiExploreTrack => { after => 'audiomuseaiAlbumFromTrack',
+		func => sub { _trackInfoItem(@_[0 .. 2], 'PLUGIN_AUDIOMUSEAI_INFO_EXPLORE_TRACK', ['audiomuseai', 'explore_track'], { mode => 'niche' }) } } ],
+	[ 'Slim::Menu::AlbumInfo', audiomuseaiAlbumAlchemy => { after => 'top', func => \&_albumInfoAlchemy } ],
+	[ 'Slim::Menu::AlbumInfo', audiomuseaiAlbumMix => { after => 'audiomuseaiAlbumAlchemy',
+		func => sub { _objInfoItem($_[2], 'PLUGIN_AUDIOMUSEAI_INFO_ALBUM_MIX', 'album_id') } } ],
+	[ 'Slim::Menu::GenreInfo', audiomuseaiGenreMix => { after => 'top',
+		func => sub { _objInfoItem($_[2], 'PLUGIN_AUDIOMUSEAI_INFO_GENRE_MIX', 'genre_id') } } ],
+);
+
+sub _applyUiMode {
+	my $dstmOnly = ($prefs->get('ui_mode') // 'full') eq 'dstm';
+	if ($dstmOnly && $_uiRegistered) {
+		Slim::Control::Jive::deleteMenuItem('pluginAudioMuseAI');
+		for my $p (@INFO_PROVIDERS) {
+			my ($class, $name) = @$p;
+			eval { $class->deregisterInfoProvider($name) };
+		}
+		Plugins::AudioMuseAI::Web::setVisible(0) if main::WEBUI;
+		$_uiRegistered = 0;
+		$log->info("interface mode: Don't Stop The Music only (menus hidden)");
+	}
+	elsif (!$dstmOnly && !$_uiRegistered) {
+		# Top-level menu under My Music. The 'icon' field is honoured by
+		# Material, default web UI, iPeng, and Squeezer.
+		Slim::Control::Jive::registerPluginMenu([{
+			text    => string('PLUGIN_AUDIOMUSEAI'),
+			id      => 'pluginAudioMuseAI',
+			weight  => 80,
+			node    => 'myMusic',
+			icon    => 'plugins/AudioMuseAI/html/images/icon_svg.png',
+			actions => {
+				go => {
+					cmd    => ['audiomuseai', 'menu'],
+					player => 0,
+				},
+			},
+			window  => { menustyle => 'text' },
+		}], 'myMusic');
+		# Hook into Lyrion's standard browse so users can pick artists /
+		# tracks / albums / genres via the native UI.
+		for my $p (@INFO_PROVIDERS) {
+			my ($class, $name, $args) = @$p;
+			eval { $class->registerInfoProvider($name => %$args) };
+			$log->warn("info provider $name: $@") if $@;
+		}
+		Plugins::AudioMuseAI::Web::setVisible(1) if main::WEBUI;
+		$_uiRegistered = 1;
+		$log->info('interface mode: full');
+	}
+}
+
+# "AudioMuse: mix ..." context item for an artist / album / genre object.
+sub _objInfoItem {
+	my ($obj, $strKey, $param) = @_;
+	return unless $obj && ref($obj);
+	my $id = eval { $obj->id };
+	return unless defined $id && $id =~ /\A\d+\z/;
+	return _infoItem($strKey, ['audiomuseai', 'mix'], { $param => "$id" });
 }
 
 sub shutdownPlugin {
@@ -753,6 +814,7 @@ sub _menuDynamic {
 	my @modes = (
 		['similar',     'PLUGIN_AUDIOMUSEAI_DYNAMIC_SIMILAR',     'dyn_similar'],
 		['semgrove',    'PLUGIN_AUDIOMUSEAI_DYNAMIC_SEMGROVE',    'dyn_semgrove'],
+		['hyperbolic',  'PLUGIN_AUDIOMUSEAI_DYNAMIC_HYPERBOLIC',  'dyn_hyperbolic'],
 		['album',       'PLUGIN_AUDIOMUSEAI_DYNAMIC_ALBUM',       'dyn_album'],
 		['fingerprint', 'PLUGIN_AUDIOMUSEAI_DYNAMIC_FINGERPRINT', 'dyn_fingerprint'],
 	);
@@ -1710,6 +1772,105 @@ sub _moodPlaylist {
 	);
 }
 
+# ----- Mixes from an artist / album / track / genre --------------------------
+# (from AudioMuse Mixer's "Create AudioMuse mix"): seed with up to 10 of the
+# object's tracks, blend them through alchemy, run the mix filters, then put
+# a few of the seed tracks back into the mix — one first, the others spread
+# through it — so the mix clearly starts from what you picked.
+#   audiomuseai mix artist_id:N | album_id:N | genre_id:N | track_id:N
+#                   [count:N] [dstm:1]   (dstm:1 = then keep going via DSTM)
+
+use constant MIX_MAX_SEEDS => 10;
+use constant MIX_MIN_SEEDS => 7;
+
+sub _mixSeedTracks {
+	my $request = shift;
+	my $tid = $request->getParam('track_id');
+	return _trackObjs([$tid]) if defined $tid && $tid =~ /\A\d+\z/;
+	my $filter;
+	for my $k (qw(album_id artist_id genre_id)) {
+		my $v = $request->getParam($k);
+		if (defined $v && $v =~ /\A\d+\z/) { $filter = "$k:$v"; last }
+	}
+	return [] unless $filter;
+	my @tracks;
+	eval {
+		my $req = Slim::Control::Request::executeRequest(undef, ['titles', 0, 1000, $filter]);
+		@tracks = @{ _trackObjs([ map { $_->{id} } @{ ($req && $req->getResult('titles_loop')) || [] } ]) };
+	};
+	my $cfg = Plugins::AudioMuseAI::Mix::settings();
+	my @ok   = grep {  Plugins::AudioMuseAI::Mix::durationOk($_, $cfg) } @tracks;
+	my @long = grep { !Plugins::AudioMuseAI::Mix::durationOk($_, $cfg) } @tracks;
+	push @ok, splice(@long, 0, MIX_MIN_SEEDS - @ok) if @ok < MIX_MIN_SEEDS && @long;
+	for (my $i = $#ok; $i > 0; $i--) { my $j = int rand($i + 1); @ok[$i, $j] = @ok[$j, $i] }
+	splice(@ok, MIX_MAX_SEEDS) if @ok > MIX_MAX_SEEDS;
+	return \@ok;
+}
+
+sub _mixCommand {
+	my $request = shift;
+	my $client  = $request->client or return $request->setStatusBadParams;
+	my $seeds   = _mixSeedTracks($request);
+	my $count   = $request->getParam('count');
+	$count = _count($client) unless defined $count && $count =~ /\A\d+\z/;
+	$count = COUNT_MIN if $count < COUNT_MIN;
+	$count = COUNT_MAX if $count > COUNT_MAX;
+	my $dstm    = ($request->getParam('dstm') // '') eq '1';
+	my $artist  = $request->getParam('artist');   # only for the Last.fm fallback
+
+	my $fallback = sub {
+		my $err = shift;
+		if (defined $artist && length $artist && exists $INC{'Plugins/LastMix/ProtocolHandler.pm'}) {
+			$log->info('mix: no AudioMuse result, trying the Last.fm mixer for ' . _logSafe($artist));
+			$client->execute(['lastmix', 'play', "artist:$artist"]);
+			return _notify($request, string('PLUGIN_AUDIOMUSEAI_MIX_LASTMIX'));
+		}
+		return defined $err ? _notifyError($request, $err)
+			: _notify($request, string('PLUGIN_AUDIOMUSEAI_NO_RESULTS'));
+	};
+	return $fallback->() unless @$seeds;
+
+	my @seedIds = map { '' . $_->id } @$seeds;
+	$log->info('mix from ' . scalar(@seedIds) . ' seed track(s) on ' . $client->id);
+	my $nSeeds = @$seeds >= 4 && $count >= 15 ? 3 : @$seeds >= 3 && $count >= 5 ? 2 : 1;
+	my $fetch  = _oversample($count);
+	# The blend of all seeds first; if AudioMuse has nothing for that (e.g.
+	# a tiny genre of barely-analysed tracks), "similar to" single seeds.
+	my @attempts = (sub { Plugins::AudioMuseAI::API::alchemy([ map { _amId($_) } @seedIds ], [], $fetch, @_) });
+	for my $sid (@seedIds[0 .. ($#seedIds < 2 ? $#seedIds : 2)]) {
+		push @attempts, sub { _withAmSeed($sid, sub {
+			Plugins::AudioMuseAI::API::similar_tracks($_[0], $fetch, $_[1], $_[2],
+				$prefs->get('mix_strict_similarity')) }, @_) };
+	}
+	$request->setStatusProcessing;
+	_runAttempts(\@attempts, { ids => { map { $_ => 1 } @seedIds }, keys => {} }, $count - $nSeeds,
+		sub {
+			my ($rows, $err) = @_;
+			return $fallback->($err) unless @$rows;
+			my @s = map { { item_id => '' . $_->id, title => (eval { $_->title } // ''),
+				author => (eval { $_->artistName } // ''), _obj => $_ } } @$seeds[0 .. $nSeeds - 1];
+			my @mix = @$rows;
+			my $n = @mix;
+			if ($nSeeds >= 3) {
+				splice @mix, int(2 * $n / 3), 0, $s[2];
+				splice @mix, int($n / 3), 0, $s[1];
+			}
+			elsif ($nSeeds == 2) {
+				splice @mix, int($n / 2), 0, $s[1];
+			}
+			unshift @mix, $s[0];
+			_queueResults($request, $client, \@mix, 1, { ordered => 1, want => scalar @mix });
+			if ($dstm) {
+				# Keep going with AudioMuse once the mix runs out.
+				$client->execute(['playerpref', 'plugin.dontstopthemusic:provider',
+					'PLUGIN_AUDIOMUSEAI_DSTM_SIMILAR']);
+				$client->execute(['playlist', 'repeat', 0]);
+			}
+		},
+		{ seeds => $seeds },
+	);
+}
+
 # ----- Album Creation (AudioMuse v3.6.2) ------------------------------------
 # A sequenced, CD-like album (opener -> closer) built from one seed song or a
 # few words, using the MusiCNN + DCLAP + lyrics indexes together. Needs all
@@ -1760,7 +1921,7 @@ sub _albumCreate {
 			my $name = _safeText($data->{suggested_name} // $data->{name} // '');
 			# An album keeps its running order and its own length.
 			_queueResults($request, $client, $tracks, 1,
-				{ want => scalar @$tracks });
+				{ want => scalar @$tracks, ordered => 1 });
 			if (length $name) {
 				$prefs->client($client)->set('last_instant_prompt', $name);
 				_maybeAutoSave($client, 'album', $name) if $prefs->get('auto_save_album');
@@ -2318,6 +2479,20 @@ sub _dynamicSemGrove {
 	_semGroveNow($request);
 }
 
+# Hyperbolic mode: start with "explore: close neighbours" appended, then keep
+# extending from the hyperbolic map.
+sub _dynamicHyperbolic {
+	my $request = shift;
+	my $client  = $request->client or return $request->setStatusBadParams;
+	_ensureDstmEnabled();
+	$prefs->client($client)->set('dstm_active', 'hyperbolic');
+	$log->info("DSTM mode 'hyperbolic' active for " . $client->id);
+	$request->setStatusProcessing;
+	_extendFetch($client, 'hyperbolic', _count($client), sub {
+		_queueResults($request, $client, shift, 0, { ordered => 1 });
+	});
+}
+
 # Album mode: start by appending a blend of the current album, then keep
 # extending album-by-album from whatever is last in the queue.
 sub _dynamicAlbum {
@@ -2328,7 +2503,8 @@ sub _dynamicAlbum {
 	$log->info("DSTM mode 'album' active for " . $client->id);
 	$request->setStatusProcessing;
 	_extendFetch($client, 'album', _count($client), sub {
-		_queueResults($request, $client, shift, 0);
+		# Already filtered by _extendFetch.
+		_queueResults($request, $client, shift, 0, { ordered => 1 });
 	});
 }
 
@@ -2372,6 +2548,7 @@ sub _dstmMixSimilar     { _dstmMix('similar',     @_) }
 sub _dstmMixAlbum       { _dstmMix('album',       @_) }
 sub _dstmMixFingerprint { _dstmMix('fingerprint', @_) }
 sub _dstmMixSemGrove    { _dstmMix('semgrove',    @_) }
+sub _dstmMixHyperbolic  { _dstmMix('hyperbolic',  @_) }
 
 # "Mix by album" (discussion #686 — wirrunna) seeds alchemy with every track
 # of the last queued track's album and keeps the album's own tracks out, so
@@ -2385,14 +2562,24 @@ sub _dstmMix {
 	_extendFetch($client, $mode, _dstmBatch($client), sub {
 		my $rows = shift;
 		_noteAdded($client, $rows);
-		$cb->($client, _dstmTrackUrls($rows));
+		my $urls = _dstmTrackUrls($rows);
+		# Nothing usable: hand over to the Last.fm mixer if it's installed
+		# (as AudioMuse Mixer does) rather than Lyrion's Random Mix.
+		if (!@$urls && $prefs->get('dstm_lastmix_fallback')
+			&& exists $INC{'Plugins/LastMix/DontStopTheMusic.pm'}) {
+			$log->info('DSTM: no AudioMuse tracks, falling back to Last.fm mixer');
+			return eval { Plugins::LastMix::DontStopTheMusic::please($client, $cb); 1 }
+				|| $cb->($client, []);
+		}
+		$cb->($client, $urls);
 	});
 }
 
+# Tracks added per auto-extend / Don't Stop The Music top-up.
 sub _dstmBatch {
-	my $client = shift;
-	my $n = _count($client);
-	return $n > 25 ? 25 : $n;
+	my $n = $prefs->get('dstm_tracks');
+	$n = EXTEND_BATCH unless defined $n && $n =~ /\A\d+\z/ && $n >= 1;
+	return $n > 50 ? 50 : $n;
 }
 
 # Seed from the last track in the player's queue — the trailing context
@@ -2451,7 +2638,8 @@ sub _nativeDstmIsOurs {
 	return $prov eq 'PLUGIN_AUDIOMUSEAI_DSTM_SIMILAR'
 		|| $prov eq 'PLUGIN_AUDIOMUSEAI_DSTM_ALBUM'
 		|| $prov eq 'PLUGIN_AUDIOMUSEAI_DSTM_FINGERPRINT'
-		|| $prov eq 'PLUGIN_AUDIOMUSEAI_DSTM_SEMGROVE';
+		|| $prov eq 'PLUGIN_AUDIOMUSEAI_DSTM_SEMGROVE'
+		|| $prov eq 'PLUGIN_AUDIOMUSEAI_DSTM_HYPERBOLIC';
 }
 
 # ----- Server status / admin ------------------------------------------------
@@ -3088,8 +3276,17 @@ sub _queueResults {
 	if ($opts->{path}) {
 		$rows = $loadFresh ? _dedupePath($tracks) : _freshRows($tracks, $excl);
 	}
-	else {
+	elsif ($opts->{ordered}) {
+		# A curated sequence (Album Creation): de-dupe, but no mix filters
+		# or shuffling, which would break its running order.
 		$rows = _freshRows($tracks, $excl, $want);
+	}
+	else {
+		$rows = Plugins::AudioMuseAI::Mix::apply(_freshRows($tracks, $excl),
+			want  => $want,
+			prev  => $loadFresh ? [] : _queueTailTracks($client, _spacingWindow()),
+			seeds => _trackObjs($opts->{seeds}),
+		);
 	}
 	# Only Lyrion-numeric ids (anything else would crash playlistcontrol).
 	my @ids = grep { defined && /\A\d+\z/ }
@@ -3139,7 +3336,7 @@ sub _onNewSong {
 
 	$log->info("DSTM auto-extend mode=$mode remaining=$remaining client=$cid");
 
-	_extendFetch($client, $mode, EXTEND_BATCH, sub {
+	_extendFetch($client, $mode, _dstmBatch($client), sub {
 		my $rows = shift;
 		delete $_extending{$cid};
 		my @ids = map { $_->{item_id} // $_->{id} } @$rows;
@@ -3212,7 +3409,9 @@ sub _remember {
 	$h->{ids}{$id}++   if defined $id;
 	$h->{keys}{$key}++ if defined $key;
 	push @{ $h->{order} }, [$id, $key];
-	while (@{ $h->{order} } > HISTORY_MAX) {
+	my $max = $prefs->get('history_max');
+	$max = HISTORY_MAX unless defined $max && $max =~ /\A\d+\z/ && $max >= 10;
+	while (@{ $h->{order} } > $max) {
 		my ($oid, $okey) = @{ shift @{ $h->{order} } };
 		delete $h->{ids}{$oid}   if defined $oid  && --$h->{ids}{$oid}   <= 0;
 		delete $h->{keys}{$okey} if defined $okey && --$h->{keys}{$okey} <= 0;
@@ -3321,6 +3520,7 @@ sub _localizeRows {
 			$_amIdFor{$lid} = "$id";
 		}
 		push @out, { %$t,
+			_obj    => $obj,
 			item_id => "$lid",
 			title   => (eval { $obj->title }      // $t->{title}),
 			author  => (eval { $obj->artistName } // $t->{author} // $t->{artist}),
@@ -3437,23 +3637,55 @@ sub _queueTailIds {
 # Run fetch attempts in order until $want fresh rows are collected (or the
 # attempts run out). Each attempt is sub { my ($ok, $err) = @_; API... }.
 # $done->(\@rows, $lastError) — the error only matters when no rows came back.
+# $ctx (optional) is passed to Mix::apply: candidates from every attempt are
+# pooled, filtered, and the attempts stop once enough survive.
 sub _runAttempts {
-	my ($attempts, $excl, $want, $done, $got, $lastErr) = @_;
-	$got ||= [];
-	return $done->($got, $lastErr) if @$got >= $want || !@$attempts;
+	my ($attempts, $excl, $want, $done, $ctx, $pool, $lastErr) = @_;
+	$pool ||= [];
+	$ctx  ||= {};
+	my $filtered = sub { Plugins::AudioMuseAI::Mix::apply([ @$pool ], %$ctx, want => $want, @_) };
+	if (!@$attempts || @{ $filtered->(shuffle => 0) } >= $want) {
+		return $done->($filtered->(), $lastErr);
+	}
 	my ($first, @rest) = @$attempts;
-	my $next = sub { _runAttempts(\@rest, $excl, $want, $done, @_) };
+	my $next = sub { _runAttempts(\@rest, $excl, $want, $done, $ctx, @_) };
 	$first->(
 		sub {
-			my $fresh = _freshRows(_localizeRows(_extractTracks(shift)), $excl, $want - @$got);
-			$next->([ @$got, @$fresh ], $lastErr);
+			my $fresh = _freshRows(_localizeRows(_extractTracks(shift)), $excl);
+			$next->([ @$pool, @$fresh ], $lastErr);
 		},
 		sub {
 			my $err = shift // 'unknown';
 			$log->info("fetch attempt failed: $err");
-			$next->($got, $err);
+			$next->($pool, $err);
 		},
 	);
+}
+
+# How far back artist / album spacing looks.
+sub _spacingWindow {
+	my $c = Plugins::AudioMuseAI::Mix::settings();
+	my $n = $c->{no_repeat_artist} > $c->{no_repeat_album}
+		? $c->{no_repeat_artist} : $c->{no_repeat_album};
+	return $n > 200 ? 200 : $n;
+}
+
+# The last $max Lyrion track objects in the queue, oldest first.
+sub _queueTailTracks {
+	my ($client, $max) = @_;
+	return [] unless $client && $max;
+	my $count = Slim::Player::Playlist::count($client) || 0;
+	my @t;
+	for (my $i = $count - 1; $i >= 0 && @t < $max; $i--) {
+		my $tr = Slim::Player::Playlist::track($client, $i) or next;
+		unshift @t, $tr if eval { $tr->id };
+	}
+	return \@t;
+}
+
+sub _trackObjs {
+	my $ids = shift || [];
+	return [ grep { $_ } map { ref($_) ? $_ : eval { Slim::Schema->find('Track', $_) } } @$ids ];
 }
 
 # User-requested "similar to <track>" APPEND: new tracks only, widening the
@@ -3469,34 +3701,50 @@ sub _appendSimilar {
 	my @attempts = ($sim->($fetch));
 	push @attempts, $sim->(FETCH_MAX) if $fetch < FETCH_MAX;
 	$request->setStatusProcessing;
+	my $ctx = { prev => _queueTailTracks($client, _spacingWindow()), seeds => _trackObjs([$seed]) };
 	_runAttempts(\@attempts, $excl, $want, sub {
 		my ($rows, $err) = @_;
 		return _notifyError($request, $err) if !@$rows && defined $err;
-		_queueResults($request, $client, $rows, 0, { exclude => { $seed => 1 } });
-	});
+		# Already filtered: queue as-is (no second shuffle / filter pass).
+		_queueResults($request, $client, $rows, 0,
+			{ exclude => { $seed => 1 }, ordered => 1, want => scalar @$rows });
+	}, $ctx);
 }
 
 # Fetch $want NEW tracks to continue the player's queue in $mode
-# (similar | semgrove | album | fingerprint), then $done->(\@rows).
+# (similar | semgrove | hyperbolic | album | fingerprint), then $done->(\@rows).
+# Seeds: the "Seed tracks" setting picks 1+ tracks from the end of the
+# queue (library files only); several seeds are blended with alchemy.
 sub _extendFetch {
 	my ($client, $mode, $want, $done) = @_;
 	my $excl  = _exclusionSet($client, 1);
 	my $fetch = _oversample($want);
+	my $nSeeds = $prefs->get('dstm_seed_tracks');
+	$nSeeds = 1 unless defined $nSeeds && $nSeeds =~ /\A\d+\z/ && $nSeeds >= 1;
+	$nSeeds = 10 if $nSeeds > 10;
+	my $seeds = Plugins::AudioMuseAI::Mix::seedTracks($client, $nSeeds,
+		$prefs->get('dstm_seed_strict'));
+	my @seedIds = map { '' . $_->id } @$seeds;
 	my $tail  = _queueTailIds($client, 5);
-	my $last  = $tail->[-1];
+	my $last  = $seedIds[-1] // $tail->[-1];
 
 	my $similar = sub {
 		my $seed = shift;
 		return () unless $seed;
 		return sub { _withAmSeed($seed, sub {
-			Plugins::AudioMuseAI::API::similar_tracks($_[0], $fetch, $_[1], $_[2]) }, @_) };
+			Plugins::AudioMuseAI::API::similar_tracks($_[0], $fetch, $_[1], $_[2],
+				$prefs->get('mix_strict_similarity')) }, @_) };
 	};
+	my $blendOf = sub {
+		my @am = map { _amId($_) } @_;
+		return () unless @am;
+		return sub { Plugins::AudioMuseAI::API::alchemy(\@am, [], $fetch, @_) };
+	};
+	# Several seeds: blend them first (the AudioMuse Mixer approach).
+	my @multi = @seedIds > 1 ? ($blendOf->(@seedIds)) : ();
 	# Blend of the last few queued tracks (temperature > 0 samples, so it
 	# also varies between calls) — the general-purpose fallback.
-	my @amTail = map { _amId($_) } @$tail;
-	my $blend = @amTail
-		? sub { Plugins::AudioMuseAI::API::alchemy(\@amTail, [], $fetch, @_) }
-		: ();
+	my $blend = $blendOf->(@$tail);
 
 	my @attempts;
 	if ($mode eq 'fingerprint') {
@@ -3511,23 +3759,32 @@ sub _extendFetch {
 	elsif ($mode eq 'album') {
 		my $ids = _dstmSeedAlbumTrackIds($client) || [];
 		$excl->{ids}{$_} = 1 for @$ids;
-		my @amIds = map { _amId($_) } @$ids;
-		push @attempts, sub { Plugins::AudioMuseAI::API::alchemy(\@amIds, [], $fetch, @_) }
-			if @amIds;
+		push @attempts, $blendOf->(@$ids);
 		push @attempts, $similar->($last), $blend;
 	}
 	elsif ($mode eq 'semgrove') {
+		push @attempts, @multi;
 		push @attempts, sub { _withAmSeed($last, sub {
 			Plugins::AudioMuseAI::API::sem_grove($_[0], $fetch, $_[1], $_[2]) }, @_) }
 			if $last;
 		push @attempts, $similar->($last), $blend;
 	}
-	else { # similar
+	elsif ($mode eq 'hyperbolic') {
+		push @attempts, @multi;
+		push @attempts, sub { _withAmSeed($last, sub {
+			Plugins::AudioMuseAI::API::hyperbolic_similar($_[0], 'similar', $fetch, $_[1], $_[2]) }, @_) }
+			if $last;
 		push @attempts, $similar->($last), $blend;
+	}
+	else { # similar
+		push @attempts, @multi, $similar->($last), $blend;
 		# Last resort: an earlier queue track as a fresh seed.
 		push @attempts, $similar->($tail->[0]) if @$tail > 1;
 	}
-	_runAttempts([ grep { $_ } @attempts ], $excl, $want, $done);
+	_runAttempts([ grep { $_ } @attempts ], $excl, $want, $done, {
+		prev  => _queueTailTracks($client, _spacingWindow()),
+		seeds => @$seeds ? $seeds : _trackObjs([ $last ]),
+	});
 }
 
 1;
