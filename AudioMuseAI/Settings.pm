@@ -84,8 +84,29 @@ sub handler {
 				# Only write if the test we kicked off is still the
 				# current outstanding one; the user may have saved
 				# different settings since.
-				$prefs->set('last_test_result', 'ok')
-					if ($prefs->get('last_test_result') // '') eq 'in_progress';
+				my $set = sub {
+					$prefs->set('last_test_result', shift)
+						if ($prefs->get('last_test_result') // '') eq 'in_progress';
+				};
+				my $name = $prefs->get('server_name') // '';
+				$name =~ s/\A\s+|\s+\z//g;
+				return $set->('ok') unless length $name;
+				# Multi-server: check the configured name exists, or
+				# every request would fail with a bare 400 later.
+				Plugins::AudioMuseAI::API::list_servers(
+					sub {
+						my $d = shift;
+						my @s = (ref($d) eq 'HASH' && ref($d->{servers}) eq 'ARRAY')
+							? grep { ref($_) eq 'HASH' } @{ $d->{servers} } : ();
+						my ($hit) = grep {
+							lc($_->{name} // '') eq lc($name) || ($_->{server_id} // '') eq $name
+						} @s;
+						return $set->('ok') if $hit;
+						$set->(sprintf("fail: AudioMuse has no music server named '%s' (configured: %s)",
+							$name, join(', ', map { $_->{name} // $_->{server_id} // '?' } @s) || 'none'));
+					},
+					sub { $set->('fail: could not list AudioMuse music servers: ' . (shift // 'unknown')) },
+				);
 			},
 			sub {
 				my $err = shift // 'unknown';

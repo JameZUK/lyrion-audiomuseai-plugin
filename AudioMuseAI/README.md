@@ -20,6 +20,8 @@ Adds an **AudioMuse-AI** entry under **My Music** in Lyrion that exposes:
 - **Save current queue as playlist...** — name the queue and save it to Lyrion.
 - **Open Music Map** — clickable link to the AudioMuse-AI web UI.
 
+Also on Lyrion's **default web interface** (v0.6.1+): Home → My Music → AudioMuse-AI, plus the AudioMuse entries on track / artist / album information pages.
+
 Backed by the AudioMuse-AI REST API. Bearer-token auth supported. Settings page includes a live server-status panel and a Test Connection button that polls the result via JSON-RPC without a manual page refresh.
 
 ## Install

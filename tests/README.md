@@ -1,7 +1,7 @@
 # Test suite
 
 Five automated layers, run cheapest-first, plus a manual on-player test.
-Each layer can be invoked on its own; `run-all.sh` chains 01-05.
+Each layer can be invoked on its own; `run-all.sh` chains 01-05 and 07.
 
 ```
 tests/
@@ -18,11 +18,14 @@ tests/
 │                  filtering, path de-dup, steering parsing, stale-id
 │                  handling, and a simulated long auto-extend on a
 │                  deliberately loopy similarity graph
+├── 07-web.pl      Default web UI adapter: page registration, menu ->
+│                  OPML conversion, search boxes, repeat guard, context-
+│                  menu run page whitelist
 ├── 06-lms-e2e.py  MANUAL: drives a real player on a real Lyrion with the
 │                  plugin installed (muted; state saved and restored) —
 │                  every menu/generator + 8 long auto-extend runs, checks
 │                  no repeated tracks/songs. ~20 min. Not in run-all.
-└── run-all.sh     Run layers 01-05; non-zero exit on any failure
+└── run-all.sh     Run layers 01-05 and 07; non-zero exit on any failure
 ```
 
 ## Running

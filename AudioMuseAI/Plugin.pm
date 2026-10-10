@@ -24,7 +24,7 @@ use Slim::Menu::TrackInfo;
 use Slim::Menu::AlbumInfo;
 
 use constant {
-	VERSION             => '0.6.0',
+	VERSION             => '0.6.1',
 	HEALTHCHECK_DELAY   => 5,
 	# Cap search-result menus to keep the UI navigable on hardware
 	# controllers; AudioMuse can return hundreds of tracks for prolific
@@ -109,6 +109,9 @@ sub initPlugin {
 	if (main::WEBUI) {
 		require Plugins::AudioMuseAI::Settings;
 		Plugins::AudioMuseAI::Settings->new;
+		# Default / Classic web skins: AudioMuse-AI under My Music (#6).
+		require Plugins::AudioMuseAI::Web;
+		Plugins::AudioMuseAI::Web::init();
 	}
 
 	# Menu builders ----------------------------------------------------------
@@ -424,80 +427,29 @@ sub _artistInfoSimilar {
 	my %params = ( artist => "$name" );
 	my $aid = ref($artist) ? eval { $artist->id } : undef;
 	$params{artist_id} = "$aid" if defined $aid && length "$aid";
-	return {
-		type => 'redirect',
-		name => string('PLUGIN_AUDIOMUSEAI_INFO_SIMILAR_ARTIST'),
-		jive => {
-			actions => {
-				go => {
-					cmd    => ['audiomuseai', 'similar_artist'],
-					player => 0,
-					params => \%params,
-				},
-			},
-		},
-	};
+	return _infoItem('PLUGIN_AUDIOMUSEAI_INFO_SIMILAR_ARTIST',
+		['audiomuseai', 'similar_artist'], \%params);
 }
 
 sub _trackInfoSimilar {
 	my ($client, $url, $track) = @_;
-	return unless $track;
-	my $tid = ref($track) ? $track->id : "$track";
-	return unless defined $tid && length $tid;
-	return {
-		type => 'redirect',
-		name => string('PLUGIN_AUDIOMUSEAI_INFO_SIMILAR_TRACK'),
-		jive => {
-			actions => {
-				go => {
-					cmd    => ['audiomuseai', 'similar_track'],
-					player => 0,
-					params => { track_id => "$tid" },
-				},
-			},
-		},
-	};
+	return _trackInfoItem($client, $url, $track,
+		'PLUGIN_AUDIOMUSEAI_INFO_SIMILAR_TRACK', ['audiomuseai', 'similar_track']);
 }
 
 sub _trackInfoSemGrove {
 	my ($client, $url, $track) = @_;
-	return unless $track;
-	my $tid = ref($track) ? $track->id : "$track";
-	return unless defined $tid && length $tid;
-	return {
-		type => 'redirect',
-		name => string('PLUGIN_AUDIOMUSEAI_INFO_SEMGROVE_TRACK'),
-		jive => {
-			actions => {
-				go => {
-					cmd    => ['audiomuseai', 'semgrove_track'],
-					player => 0,
-					params => { track_id => "$tid" },
-				},
-			},
-		},
-	};
+	return _trackInfoItem($client, $url, $track,
+		'PLUGIN_AUDIOMUSEAI_INFO_SEMGROVE_TRACK', ['audiomuseai', 'semgrove_track']);
 }
 
 # Generic "AudioMuse: ... from this track" info-menu entry.
 sub _trackInfoItem {
 	my ($client, $url, $track, $strKey, $cmd, $extra) = @_;
-	return unless $track && ref($track);
-	my $tid = eval { $track->id };
+	return unless $track;
+	my $tid = ref($track) ? eval { $track->id } : "$track";
 	return unless defined $tid && $tid =~ /\A\d+\z/;
-	return {
-		type => 'redirect',
-		name => string($strKey),
-		jive => {
-			actions => {
-				go => {
-					cmd    => $cmd,
-					player => 0,
-					params => { %{ $extra || {} }, track_id => "$tid" },
-				},
-			},
-		},
-	};
+	return _infoItem($strKey, $cmd, { %{ $extra || {} }, track_id => "$tid" });
 }
 
 sub _albumInfoAlchemy {
@@ -509,19 +461,34 @@ sub _albumInfoAlchemy {
 	# we can approximate by adding all of the album's tracks to the
 	# alchemy ADD list and triggering a generate. That gives a sonic
 	# blend that "smells like" the album.
-	return {
+	return _infoItem('PLUGIN_AUDIOMUSEAI_INFO_ALCHEMY_FROM_ALBUM',
+		['audiomuseai', 'alchemy_album'], { album_id => "$aid" });
+}
+
+# An info-menu (context menu) item. Controllers use the `jive` go action,
+# exactly as before (type stays 'redirect' — that's what they receive).
+# The Default web skin ignores `jive` and only shows a 'redirect' item that
+# has a `web.url`: that points at the web adapter's run page, which runs the
+# same command for the selected player and shows the result (#6).
+sub _infoItem {
+	my ($strKey, $cmd, $params) = @_;
+	my $item = {
 		type => 'redirect',
-		name => string('PLUGIN_AUDIOMUSEAI_INFO_ALCHEMY_FROM_ALBUM'),
+		name => string($strKey),
 		jive => {
 			actions => {
 				go => {
-					cmd    => ['audiomuseai', 'alchemy_album'],
+					cmd    => $cmd,
 					player => 0,
-					params => { album_id => "$aid" },
+					params => $params,
 				},
 			},
 		},
 	};
+	if (main::WEBUI) {
+		$item->{web} = { url => Plugins::AudioMuseAI::Web::runUrl($cmd->[1], $params) };
+	}
+	return $item;
 }
 
 sub _healthCheck {
@@ -3014,6 +2981,12 @@ sub _notifyError {
 	if ($err =~ /\b503\b/ || $err =~ /unavailable/i) {
 		return _notifyErrorWithStatus($request,
 			string('PLUGIN_AUDIOMUSEAI_UNAVAILABLE'));
+	}
+
+	# A wrong "AudioMuse music server name" makes AudioMuse answer 400
+	# ("Invalid server selection") to everything — point at the setting.
+	if ($err =~ /\b400\b/ && length(_trim($prefs->get('server_name') // ''))) {
+		return _notify($request, string('PLUGIN_AUDIOMUSEAI_SERVER_NAME_REJECTED'));
 	}
 
 	if ($err =~ /\b401\b|\b403\b/ || $err =~ /unauthor/i || $err =~ /forbidden/i) {

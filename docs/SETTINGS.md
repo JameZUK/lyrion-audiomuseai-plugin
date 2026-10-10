@@ -13,7 +13,7 @@
 | **Auto-save Instant Playlist results** | After every Instant Playlist, save the queue as `AudioMuse: <prompt>`. |
 | **Auto-save Browse-by-Mood results** | After tapping a Mood preset, Sonic mood or Lyric theme, save as `AudioMuse: <mood> - <timestamp>`. |
 | **Auto-save created albums** | After Album Creation, save the queue as `AudioMuse album: <suggested name>`. |
-| **Test connection** | Probes the server; result is polled in-place via JSON-RPC. |
+| **Test connection** | Probes the server; result is polled in-place via JSON-RPC. With a server name set, also confirms AudioMuse has a music server by that name. |
 
 The settings page also shows a live **Server Status panel** — current task (status message, state, progress %, running time, last log line) plus a **Library coverage** section (artists, albums, CLAP-indexed tracks, clustered tracks, top moods). It auto-refreshes every 10 s while a task is running.
 

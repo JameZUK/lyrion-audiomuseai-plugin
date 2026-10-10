@@ -415,6 +415,24 @@ sub models {
 	_get('/api/models', $cb_ok, $cb_err, TIMEOUT_FAST, 300);
 }
 
+# Configured music servers (v3.0+): { default_id, servers: [ { server_id,
+# name, server_type, is_default } ] }. Used to validate the server_name pref.
+sub list_servers {
+	my ($cb_ok, $cb_err) = @_;
+	# Raw: no `server=` here — validating that value is the point.
+	my $url = _base() . '/api/servers';
+	my $http = Slim::Networking::SimpleAsyncHTTP->new(
+		sub {
+			my ($data, $err) = _decode(shift->content, $url);
+			return $cb_err->($err) if $err && $cb_err;
+			$cb_ok->($data) if $cb_ok && !$err;
+		},
+		sub { my (undef, $err) = @_; $cb_err->($err // 'unknown HTTP error') if $cb_err; },
+		{ timeout => TIMEOUT_FAST },
+	);
+	$http->get($url, _headers());
+}
+
 sub version {
 	my ($cb_ok, $cb_err) = @_;
 	_get('/api/version', $cb_ok, $cb_err, TIMEOUT_FAST, 300);

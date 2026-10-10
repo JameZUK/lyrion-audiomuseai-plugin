@@ -17,6 +17,8 @@ Requires a running [AudioMuse-AI](https://github.com/NeptuneHub/AudioMuse-AI) in
 2. Apply, tick **AudioMuse-AI** in the third-party plugin list, Apply, and restart Lyrion when prompted.
 3. Open **Settings → Plugins → AudioMuse-AI**, set your **Server URL** (e.g. `http://localhost:8000`) and **API token** (from the AudioMuse-AI web UI → Administration), then hit **Test connection**.
 
+It then appears under **My Music → AudioMuse-AI** on every controller — Material, iPeng, Squeezer, Jive players — and (since v0.6.1) on Lyrion's **default web interface** too.
+
 Prefer to install by hand? See [docs/TROUBLESHOOTING.md → Manual install](docs/TROUBLESHOOTING.md#manual-install).
 
 ## Features

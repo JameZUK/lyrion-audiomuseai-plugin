@@ -13,3 +13,5 @@
 tests/.env
 tests/.env.*
 !tests/.env.example
+
+__pycache__/

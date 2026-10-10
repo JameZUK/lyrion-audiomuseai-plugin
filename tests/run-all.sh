@@ -37,6 +37,9 @@ run '03-extracts (response unwrap shapes)' \
 run '05-antirepeat (queue de-dup / auto-extend simulation)' \
     "PERL5LIB='$STUBS' perl '$HERE/05-antirepeat.pl'"
 
+run '07-web       (default web UI adapter)' \
+    "PERL5LIB='$STUBS' perl '$HERE/07-web.pl'"
+
 run '04-live    (against $AUDIOMUSE_URL — skipped if no token)' \
     "bash '$HERE/04-live.sh'"
 

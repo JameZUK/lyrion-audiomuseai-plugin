@@ -8,7 +8,11 @@
 
 **Fewer tracks than requested, or "not analysed" on a song you know AudioMuse has** — AudioMuse remembers your tracks by the id Lyrion gave them when it analysed them. A Lyrion rescan / wipe-and-rescan renumbers tracks, and until AudioMuse re-maps them its ids point at tracks Lyrion no longer has (on a busy library this can be a quarter of results). Since v0.6.0 the plugin copes: it re-finds each stale result in your library by title + artist, and if AudioMuse doesn't know the id of the song you're seeding from, it looks the song up by title + artist and retries. `server.log` then says *"N result id(s) not in the Lyrion library (stale AudioMuse mapping...)"*. To fix it at the source, in AudioMuse-AI run **Setup → Music Servers → Align music servers** (or a per-server *Sweep*), then a **Cleaning** run with *delete orphans* enabled.
 
-**Test connection fails** — check the URL has a scheme, the token is correct, and Lyrion can reach the host. From the Lyrion box: `curl <url>/api/active_tasks`.
+**Test connection fails** — check the URL has a scheme, the token is correct, and Lyrion can reach the host. From the Lyrion box: `curl <url>/api/active_tasks`. If you've set **AudioMuse music server name**, Test connection also checks AudioMuse actually has a server by that name (case doesn't matter) and lists the ones it has if not.
+
+**Every action says "AudioMuse-AI rejected the request - check the AudioMuse music server name setting"** — the server name in the plugin settings doesn't match any music server in AudioMuse-AI's Setup page. Fix the spelling (Test connection shows the valid names) or clear it if Lyrion is AudioMuse's default server.
+
+**AudioMuse-AI isn't on the default web interface's Home page** — it is since v0.6.1 (under My Music, near Random Mix); update the plugin. Actions need a player selected at the top right of the page.
 
 **A menu flashes and disappears (Squeezer)** — should be fixed in recent versions. If it recurs, check `server.log` for `plugin.audiomuseai` entries to see what the dispatcher returned.
 

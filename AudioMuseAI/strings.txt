@@ -229,7 +229,7 @@ PLUGIN_AUDIOMUSEAI_USE_AS_TYPED
 	EN	Use '%s' (typed)
 
 PLUGIN_AUDIOMUSEAI_INFO_SIMILAR_ARTIST
-	EN	AudioMuse: similar artists
+	EN	AudioMuse: music like this artist
 
 PLUGIN_AUDIOMUSEAI_INFO_SIMILAR_TRACK
 	EN	AudioMuse: similar tracks
@@ -503,3 +503,9 @@ PLUGIN_AUDIOMUSEAI_SERVER_NAME
 
 PLUGIN_AUDIOMUSEAI_SERVER_NAME_DESC
 	EN	Only needed if your AudioMuse-AI (v3.0+) has several music servers configured and this Lyrion server is NOT its default: enter the server's name exactly as shown in AudioMuse's setup page. Leave blank otherwise.
+
+PLUGIN_AUDIOMUSEAI_WEB_NO_PLAYER
+	EN	Select a player first (player list at the top right), then try again.
+
+PLUGIN_AUDIOMUSEAI_SERVER_NAME_REJECTED
+	EN	AudioMuse-AI rejected the request - check the "AudioMuse music server name" setting matches a server name in AudioMuse's Setup page (Settings > Plugins > AudioMuse-AI > Test connection checks it).

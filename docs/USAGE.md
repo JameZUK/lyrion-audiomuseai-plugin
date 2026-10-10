@@ -86,7 +86,7 @@ The plugin registers info-providers for artists, tracks, and albums. **Browse no
 - **AudioMuse: niche deep cuts like this track** — on any track (hyperbolic *niche* explore)
 - **AudioMuse: alchemy from this album** — on any album (seeds alchemy with all the album's tracks)
 
-> **Material users — look under "More".** Material's context menu shows only the common actions (Play, Add to queue, Favourites…) at the top, then a **More** entry. The AudioMuse items are inside **More**, not on the first screen. So the path is: long-press (or **⋮**) → **More** → *AudioMuse: …*. (On the default web UI and iPeng they appear directly in the context menu.)
+> **Material users — look under "More".** Material's context menu shows only the common actions (Play, Add to queue, Favourites…) at the top, then a **More** entry. The AudioMuse items are inside **More**, not on the first screen. So the path is: long-press (or **⋮**) → **More** → *AudioMuse: …*. (On the default web UI — a track / artist / album's information page — and on iPeng they appear directly in the list; on the default web UI since v0.6.1.)
 
 This gives you Lyrion's native filter / letter-jump for free — often the fastest path on any controller.
 
@@ -113,7 +113,7 @@ It asks AudioMuse for extra candidates so a full batch survives the filtering, a
 
 | Controller | Status |
 |---|---|
-| **Default Lyrion web UI** | Full feature set, including text-input items. |
+| **Default Lyrion web UI** | Full feature set since v0.6.1: **Home → My Music → AudioMuse-AI** (next to Random Mix), with the typed features (Instant Playlist, AI Chat, lyrics, album from a description, artist / Find Path searches) as search boxes, and the AudioMuse entries on track / artist / album information pages. Pick a player at the top right first. Refreshing a result page won't queue the same playlist twice. |
 | **Material Skin** | Full feature set. The settings status panel is theme-aware (works on light and dark). |
 | **iPeng** | Full feature set. |
 | **Squeezer (Android)** | Full feature set, including text-input items. |
