@@ -315,7 +315,7 @@ sub initPlugin {
 		id      => 'pluginAudioMuseAI',
 		weight  => 80,
 		node    => 'myMusic',
-		icon    => 'plugins/AudioMuseAI/html/images/icon.png',
+		icon    => 'plugins/AudioMuseAI/html/images/icon_svg.png',
 		actions => {
 			go => {
 				cmd    => ['audiomuseai', 'menu'],
