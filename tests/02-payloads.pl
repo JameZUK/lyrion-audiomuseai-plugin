@@ -30,6 +30,10 @@ sub check {
 sub last_post { $Slim::Networking::SimpleAsyncHTTP::captured_posts[-1] }
 sub last_get  { $Slim::Networking::SimpleAsyncHTTP::captured_gets[-1]  }
 
+# NOTE: wrap a bare `$x =~ m{...}` argument in scalar(...). In check()'s
+# argument list a FAILED match returns an empty list, so $detail slides into
+# $ok and the check silently PASSES (spotted by Tstassin, PR #8).
+
 # Convenience: fire an API call, return decoded payload from last POST.
 sub fire_post {
     my ($code) = @_;
@@ -56,7 +60,7 @@ sub fire_get {
         Plugins::AudioMuseAI::API::clap_search('upbeat summer', 25, sub {}, sub {});
     });
     check('clap_search: URL',
-        $url =~ m{/api/clap/search$}, $url // '(no request captured)');
+        scalar($url =~ m{/api/clap/search$}), $url // '(no request captured)');
     check('clap_search: payload uses `limit` (not legacy `n`)',
         defined $body->{limit} && !defined $body->{n},
         encode_json($body));
@@ -76,7 +80,7 @@ sub fire_get {
         );
     });
     check('alchemy: URL',
-        $url =~ m{/api/alchemy$}, $url // '(no request)');
+        scalar($url =~ m{/api/alchemy$}), $url // '(no request)');
     check('alchemy: payload uses items[] (not legacy add[]/sub[])',
         ref($body->{items}) eq 'ARRAY' && !defined($body->{add}) && !defined($body->{sub}),
         encode_json($body));
@@ -116,7 +120,7 @@ sub fire_get {
         Plugins::AudioMuseAI::API::clap_warmup(sub {}, sub {});
     });
     check('clap_warmup: URL',
-        $url =~ m{/api/clap/warmup$}, $url // '(no request)');
+        scalar($url =~ m{/api/clap/warmup$}), $url // '(no request)');
     check('clap_warmup: empty body',
         encode_json($body) eq '{}', encode_json($body));
 }
@@ -129,7 +133,7 @@ sub fire_get {
         Plugins::AudioMuseAI::API::lyrics_search('rainy heartbreak', 50, sub {}, sub {});
     });
     check('lyrics_search: URL',
-        $url =~ m{/api/lyrics/search/text$}, $url // '(no request)');
+        scalar($url =~ m{/api/lyrics/search/text$}), $url // '(no request)');
     check('lyrics_search: payload uses {query, limit}',
         ($body->{query} // '') eq 'rainy heartbreak'
           && ($body->{limit} // 0) == 50,
@@ -144,7 +148,7 @@ sub fire_get {
         Plugins::AudioMuseAI::API::chat_playlist('rainy afternoon', sub {}, sub {});
     });
     check('chat_playlist: URL (chat blueprint mount, NOT /api/...)',
-        $url =~ m{/chat/api/chatPlaylist$}, $url // '(no request)');
+        scalar($url =~ m{/chat/api/chatPlaylist$}), $url // '(no request)');
     check('chat_playlist: payload uses `userInput` (server-required key)',
         ($body->{userInput} // '') eq 'rainy afternoon',
         encode_json($body));
@@ -158,35 +162,35 @@ sub fire_get {
         Plugins::AudioMuseAI::API::similar_tracks('item123', 10, sub {}, sub {});
     });
     check('similar_tracks: URL has item_id, n, eliminate_duplicates',
-        $url =~ m{/api/similar_tracks\?item_id=item123&n=10&eliminate_duplicates=true$},
+        scalar($url =~ m{/api/similar_tracks\?item_id=item123&n=10&eliminate_duplicates=true$}),
         $url // '(no request)');
 
     $url = fire_get(sub {
         Plugins::AudioMuseAI::API::search_tracks('U2', sub {}, sub {});
     });
     check('search_tracks: URL uses legacy `artist=` (server has back-compat)',
-        $url =~ m{/api/search_tracks\?artist=U2$},
+        scalar($url =~ m{/api/search_tracks\?artist=U2$}),
         $url // '(no request)');
 
     $url = fire_get(sub {
         Plugins::AudioMuseAI::API::sonic_fingerprint(15, sub {}, sub {});
     });
     check('sonic_fingerprint: URL has ?n=',
-        $url =~ m{/api/sonic_fingerprint/generate\?n=15$},
+        scalar($url =~ m{/api/sonic_fingerprint/generate\?n=15$}),
         $url // '(no request)');
 
     $url = fire_get(sub {
         Plugins::AudioMuseAI::API::find_path('100', '200', 8, sub {}, sub {});
     });
     check('find_path: URL has start, end, max_steps',
-        $url =~ m{/api/find_path\?start_song_id=100&end_song_id=200&max_steps=8$},
+        scalar($url =~ m{/api/find_path\?start_song_id=100&end_song_id=200&max_steps=8$}),
         $url // '(no request)');
 
     $url = fire_get(sub {
         Plugins::AudioMuseAI::API::task_status('tid-x', sub {}, sub {});
     });
     check('task_status: URL embeds task id',
-        $url =~ m{/api/status/tid-x$}, $url // '(no request)');
+        scalar($url =~ m{/api/status/tid-x$}), $url // '(no request)');
 }
 
 # ---------------------------------------------------------------------------
@@ -197,19 +201,19 @@ sub fire_get {
         Plugins::AudioMuseAI::API::start_analysis(sub {}, sub {});
     });
     check('start_analysis: URL',
-        $url =~ m{/api/analysis/start$}, $url // '(no request)');
+        scalar($url =~ m{/api/analysis/start$}), $url // '(no request)');
 
     ($url, undef) = fire_post(sub {
         Plugins::AudioMuseAI::API::start_clustering(sub {}, sub {});
     });
     check('start_clustering: URL',
-        $url =~ m{/api/clustering/start$}, $url // '(no request)');
+        scalar($url =~ m{/api/clustering/start$}), $url // '(no request)');
 
     ($url, undef) = fire_post(sub {
         Plugins::AudioMuseAI::API::cancel_task('tid-y', sub {}, sub {});
     });
     check('cancel_task: URL embeds task id',
-        $url =~ m{/api/cancel/tid-y$}, $url // '(no request)');
+        scalar($url =~ m{/api/cancel/tid-y$}), $url // '(no request)');
 }
 
 # ---------------------------------------------------------------------------
@@ -259,7 +263,7 @@ sub fire_get {
         Plugins::AudioMuseAI::API::find_path('1', '2', 12, sub {}, sub {}, 'lyrics');
     });
     check('find_path(lyrics): path_space=lyrics',
-        ($url // '') =~ /path_space=lyrics/, $url // '');
+        scalar(($url // '') =~ /path_space=lyrics/), $url // '');
     $url = fire_get(sub {
         Plugins::AudioMuseAI::API::find_path('1', '2', 12, sub {}, sub {}, 'audio');
     });
@@ -268,11 +272,11 @@ sub fire_get {
         Plugins::AudioMuseAI::API::similar_by_mood('happy', 2, 20, sub {}, sub {});
     });
     check('similar_by_mood: mood + centroid_index',
-        ($url // '') =~ m{/api/similar_tracks\?mood=happy&centroid_index=2&n=20}, $url // '');
+        scalar(($url // '') =~ m{/api/similar_tracks\?mood=happy&centroid_index=2&n=20}), $url // '');
     $url = fire_get(sub {
         Plugins::AudioMuseAI::API::similar_by_anchor(4, 20, sub {}, sub {});
     });
-    check('similar_by_anchor: anchor_id', ($url // '') =~ /anchor_id=4&n=20/, $url // '');
+    check('similar_by_anchor: anchor_id', scalar(($url // '') =~ /anchor_id=4&n=20/), $url // '');
 }
 {
     my ($url, $body) = fire_post(sub {
@@ -299,23 +303,107 @@ sub fire_get {
         $url =~ m{/chat/api/chatPlaylist$} && $body->{n} == 30 && $body->{userInput} eq '80s synth',
         encode_json($body));
 }
+# ---------------------------------------------------------------------------
+# server_name — AudioMuse-AI multi-server selector (#7). Blank = no `server`
+# param at all. Set = appended to the query string of every GET and added to
+# the JSON body of every POST (AudioMuse reads either).
+# Adapted from Tstassin's tests in PR #8, including the scalar() rule: in
+# check()'s argument list a FAILED m// returns an empty list, shifting
+# $detail into $ok -- a silent PASS. Every match below is wrapped.
+# ---------------------------------------------------------------------------
 {
-    # Multi-server: the server_name pref is added to GET query and POST body.
     my $prefs = Slim::Utils::Prefs::preferences('plugin.audiomuseai');
-    $prefs->set('server_name', 'Lyrion Two');
+
+    $prefs->set('server_name', '');
     my $url = fire_get(sub {
         Plugins::AudioMuseAI::API::similar_tracks('1', 10, sub {}, sub {});
     });
-    check('server_name: appended to GET', ($url // '') =~ /&server=Lyrion%20Two$/, $url // '');
+    check('server_name blank: no server param',
+        scalar(($url // '') !~ /server=/), $url // '(no request)');
     my (undef, $body) = fire_post(sub {
-        Plugins::AudioMuseAI::API::sem_grove('1', 10, sub {}, sub {});
+        Plugins::AudioMuseAI::API::alchemy(['1'], [], 25, sub {}, sub {});
     });
-    check('server_name: added to POST body', ($body->{server} // '') eq 'Lyrion Two', encode_json($body));
-    $prefs->set('server_name', '');
+    check('server_name blank: no server key in POST body',
+        !exists $body->{server}, encode_json($body // {}));
+
+    $prefs->set('server_name', 'Lyrion');
     $url = fire_get(sub {
         Plugins::AudioMuseAI::API::similar_tracks('1', 10, sub {}, sub {});
     });
-    check('server_name: blank = no server param', ($url // '') !~ /server=/, $url // '');
+    check('server_name: appended with & when the path has a query',
+        scalar(($url // '') =~ m{/api/similar_tracks\?item_id=1&n=10&eliminate_duplicates=true&server=Lyrion$}),
+        $url // '(no request)');
+
+    $url = fire_get(sub {
+        Plugins::AudioMuseAI::API::health(sub {}, sub {});
+    });
+    check('server_name: appended with ? when the path has no query',
+        scalar(($url // '') =~ m{/api/health\?server=Lyrion$}), $url // '(no request)');
+
+    my $purl;
+    ($purl, $body) = fire_post(sub {
+        Plugins::AudioMuseAI::API::alchemy(['1'], [], 25, sub {}, sub {});
+    });
+    check('server_name: POST carries it in the JSON body',
+        ($body->{server} // '') eq 'Lyrion', encode_json($body // {}));
+    check('server_name: POST URL left plain',
+        scalar(($purl // '') =~ m{/api/alchemy$}), $purl // '(no request)');
+
+    $prefs->set('server_name', '  Lyrion  ');
+    $url = fire_get(sub {
+        Plugins::AudioMuseAI::API::health(sub {}, sub {});
+    });
+    check('server_name: surrounding whitespace trimmed',
+        scalar(($url // '') =~ m{\?server=Lyrion$}), $url // '(no request)');
+
+    $prefs->set('server_name', 'My LMS & Co');
+    $url = fire_get(sub {
+        Plugins::AudioMuseAI::API::health(sub {}, sub {});
+    });
+    check('server_name: percent-encoded (space, &)',
+        scalar(($url // '') =~ m{\?server=My%20LMS%20%26%20Co$}), $url // '(no request)');
+
+    # A decoded character string, as Lyrion hands over settings-form input.
+    my $name = "Salon \x{c9}ric";
+    utf8::upgrade($name);
+    $prefs->set('server_name', $name);
+    $url = fire_get(sub {
+        Plugins::AudioMuseAI::API::health(sub {}, sub {});
+    });
+    check('server_name: non-ASCII percent-encoded as UTF-8',
+        scalar(($url // '') =~ m{\?server=Salon%20%C3%89ric$}), $url // '(no request)');
+
+    # A name containing CR/LF is treated as invalid and not sent at all.
+    $prefs->set('server_name', "Ly\r\nrion");
+    $url = fire_get(sub {
+        Plugins::AudioMuseAI::API::health(sub {}, sub {});
+    });
+    check('server_name: embedded CR/LF never reaches the request',
+        scalar(($url // '') !~ /server=/ && ($url // '') !~ /[\r\n]/), $url // '(no request)');
+
+    # peek_active_tasks must read the same (server-scoped) cache key that
+    # active_tasks writes — and must not see another server's entry.
+    $prefs->set('server_name', 'Lyrion');
+    Slim::Networking::SimpleAsyncHTTP::reset_captures();
+    $Slim::Networking::SimpleAsyncHTTP::next_response_body =
+        '{"status":"RUNNING","task_id":"t-peek"}';
+    Plugins::AudioMuseAI::API::active_tasks(sub {}, sub {});
+    $url = last_get() ? last_get()->{url} : undef;
+    check('server_name: active_tasks carries it',
+        scalar(defined $url && $url =~ m{/api/active_tasks\?server=Lyrion$}),
+        $url // '(no request)');
+    my $peek = Plugins::AudioMuseAI::API::peek_active_tasks();
+    check('server_name: peek_active_tasks hits the server-scoped cache',
+        ref($peek) eq 'HASH' && ($peek->{task_id} // '') eq 't-peek',
+        encode_json($peek // {}));
+
+    $prefs->set('server_name', 'Other');
+    $peek = Plugins::AudioMuseAI::API::peek_active_tasks();
+    check("server_name: peek_active_tasks ignores another server's entry",
+        !defined $peek, encode_json($peek // {}));
+
+    $prefs->set('server_name', '');
+    Slim::Networking::SimpleAsyncHTTP::reset_captures();
 }
 
 # ---------------------------------------------------------------------------

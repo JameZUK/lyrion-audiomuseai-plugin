@@ -62,7 +62,7 @@ my %_recent;   # "clientid|cmd..." => [epoch, feed]
 sub init {
 	Slim::Web::Pages->addPageLinks('browse', { PLUGIN_AUDIOMUSEAI => URL });
 	Slim::Web::Pages->addPageLinks('icons',
-		{ PLUGIN_AUDIOMUSEAI => 'plugins/AudioMuseAI/html/images/icon.png' });
+		{ PLUGIN_AUDIOMUSEAI => 'plugins/AudioMuseAI/html/images/icon_svg.png' });
 	Slim::Web::Pages->addPageFunction(URL, sub {
 		my $client = $_[0];
 		Slim::Web::XMLBrowser->handleWebIndex({

@@ -10,6 +10,8 @@
 
 **Test connection fails** — check the URL has a scheme, the token is correct, and Lyrion can reach the host. From the Lyrion box: `curl <url>/api/active_tasks`. If you've set **AudioMuse music server name**, Test connection also checks AudioMuse actually has a server by that name (case doesn't matter) and lists the ones it has if not.
 
+**Empty results, "not analysed" or wrong tracks with a multi-server AudioMuse-AI** — without a server name, AudioMuse resolves Lyrion's track ids against its *default* music server (and **Run all radios** builds the playlists there). Set **AudioMuse music server name** to this Lyrion server's name in AudioMuse's Setup page.
+
 **Every action says "AudioMuse-AI rejected the request - check the AudioMuse music server name setting"** — the server name in the plugin settings doesn't match any music server in AudioMuse-AI's Setup page. Fix the spelling (Test connection shows the valid names) or clear it if Lyrion is AudioMuse's default server.
 
 **AudioMuse-AI isn't on the default web interface's Home page** — it is since v0.6.1 (under My Music, near Random Mix); update the plugin. Actions need a player selected at the top right of the page.
