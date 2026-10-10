@@ -2,7 +2,7 @@
 """End-to-end test of the AudioMuse-AI Lyrion plugin on a REAL player.
 
 Drives one player over Lyrion's JSON-RPC, saves/restores its state (queue,
-power, volume, Don't Stop The Music provider, dynamic mode), mutes it, and for
+playing position, power, volume, Don't Stop The Music provider, dynamic mode), mutes it, and for
 every plugin function checks: it responds, the queue changes as expected
 (load / append), and the resulting queue has no repeated track ids or songs.
 Also runs eight long auto-extend sessions (~150 tracks each: four menu
@@ -180,6 +180,9 @@ STALE_ID = ENV('E2E_STALE_ID', '')
 
 if __name__ == '__main__':
     state = rpc(['status', '-', '1', 'tags:'])
+    was_playing = state.get('mode') == 'play'
+    play_index = state.get('playlist_cur_index')
+    play_time = state.get('time')
     vol = rpc(['mixer', 'volume', '?']).get('_volume')
     power = state.get('power')
     dstm_prov = rpc(['playerpref', 'plugin.dontstopthemusic:provider', '?']).get('_p2')
@@ -314,6 +317,13 @@ if __name__ == '__main__':
         rpc(['playerpref', 'plugin.dontstopthemusic:provider', dstm_prov if dstm_prov else '0'])
         if power in (0, '0'):
             rpc(['power', '0'])
+        elif was_playing:
+            # Someone was listening: put them back where they were.
+            if play_index is not None:
+                rpc(['playlist', 'index', str(play_index)])
+            if play_time:
+                rpc(['time', str(play_time)])
+            rpc(['play'])
         if dyn_mode:
             rpc(['playerpref', 'plugin.audiomuseai:dstm_active', dyn_mode])
         print(f'restored player state (dynamic mode {dyn_mode!r})')

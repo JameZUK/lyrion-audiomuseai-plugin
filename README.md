@@ -75,6 +75,21 @@ Browse to **any** artist, track, or album the normal way and open its context me
 
 > On **Material**, these sit under **More** in the context menu — see [docs/USAGE.md](docs/USAGE.md#context-menu).
 
+## Screenshots
+
+| | |
+|---|---|
+| <img src="docs/images/explore.png" alt="Explore around current track: close neighbours, roots, niche" width="400"> | <img src="docs/images/sonic-moods.png" alt="Sonic moods: AudioMuse's analysed mood clusters" width="400"> |
+| **Explore around current track** — the hyperbolic map | **Sonic moods** — AudioMuse's own mood clusters |
+| <img src="docs/images/mood.png" alt="Browse by Mood presets" width="400"> | <img src="docs/images/lyric-themes.png" alt="Lyric themes: emotional valence labels" width="400"> |
+| **Browse by Mood** | **Lyric themes** |
+| <img src="docs/images/dynamic.png" alt="Dynamic Playlists auto-extend modes" width="400"> | <img src="docs/images/alchemy.png" alt="Song Alchemy menu" width="400"> |
+| **Dynamic Playlists** (no-repeat auto-extend) | **Song Alchemy** — tracks, artists, playlists, anchors |
+| <img src="docs/images/findpath.png" alt="Find a path: sonic, lyrics + sound, hyperbolic journey" width="400"> | <img src="docs/images/web-ui.png" alt="The plugin in Lyrion's default web interface" width="400"> |
+| **Find a path** between two songs | Lyrion's **default web interface** |
+
+Settings page: [docs/SETTINGS.md](docs/SETTINGS.md).
+
 ## Documentation
 
 | Doc | Covers |
@@ -83,6 +98,15 @@ Browse to **any** artist, track, or album the normal way and open its context me
 | **[Settings](docs/SETTINGS.md)** | All settings, auto-name strategies, Don't Stop The Music, per-player overrides. |
 | **[CLI / JSON-RPC](docs/CLI.md)** | Drive every action from scripts, Home Assistant, or Material custom buttons. |
 | **[Troubleshooting](docs/TROUBLESHOOTING.md)** | Common issues, limitations, manual install. |
+
+## Bug reports, ideas & contributions
+
+All welcome:
+
+- **Found a bug or have an idea?** [Open an issue](https://github.com/JameZUK/lyrion-audiomuseai-plugin/issues). For bugs, it helps to include your Lyrion and AudioMuse-AI versions, which controller you use (Material, Squeezer, web UI...), and any `plugin.audiomuseai` lines from Lyrion's `server.log`.
+- **Pull requests** are very welcome too. `tests/run-all.sh` runs the offline checks (plus live API checks if you set up `tests/.env` — see [tests/README.md](tests/README.md)); please keep it passing and add a test for anything you change.
+
+A big thank you to everyone who has reported issues, suggested features, tested builds and sent pull requests — and apologies for the slow responses at times. This is a spare-time project fitted around a day job, so replies can lag, but every report is read and appreciated.
 
 ## License
 

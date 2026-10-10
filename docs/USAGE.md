@@ -8,6 +8,9 @@ Entries are ordered by how often you'll reach for them.
 
 ### One-tap actions
 
+<p align="center"><img src="images/menu.png" alt="The AudioMuse-AI menu in Material" width="520"></p>
+
+
 | Item | What it does | Needs |
 |---|---|---|
 | **Similar to current track** | Queues tracks sonically similar to whatever's playing now (audio only). | Clustering done. |
@@ -56,6 +59,9 @@ These need an on-screen keyboard, and work on every controller (web UI, Material
 
 ### Concept steering
 
+<p align="center"><img src="images/mood.png" alt="Browse by Mood, with Sonic moods and Steering concepts" width="520"></p>
+
+
 AudioMuse v3.5.1+ lets you push an Instant Playlist toward (or away from) specific musical concepts. Put the concepts after a `|`, comma-separated:
 
 ```
@@ -92,6 +98,9 @@ This gives you Lyrion's native filter / letter-jump for free — often the faste
 
 ### Auto-extend
 
+<p align="center"><img src="images/dynamic.png" alt="Dynamic Playlists modes" width="520"></p>
+
+
 Two ways to keep the queue topped up automatically:
 
 1. **Native Don't Stop The Music** *(recommended)* — Player Settings → Audio → **Don't Stop The Music** → pick one of **AudioMuse-AI: Similar to recent tracks**, **Lyrics + sound mix (SemGrove)**, **Mix by recent album (broader)** or **Sonic fingerprint**. LMS tops up the queue as it nears the end, exactly like MusicIP / SugarCube. Per-player. (With only one track in the queue, Lyrion itself waits until that track is half played before topping up.)
@@ -113,7 +122,7 @@ It asks AudioMuse for extra candidates so a full batch survives the filtering, a
 
 | Controller | Status |
 |---|---|
-| **Default Lyrion web UI** | Full feature set since v0.6.1: **Home → My Music → AudioMuse-AI** (next to Random Mix), with the typed features (Instant Playlist, AI Chat, lyrics, album from a description, artist / Find Path searches) as search boxes, and the AudioMuse entries on track / artist / album information pages. Pick a player at the top right first. Refreshing a result page won't queue the same playlist twice. |
+| **Default Lyrion web UI** ([screenshot](images/web-ui.png)) | Full feature set since v0.6.1: **Home → My Music → AudioMuse-AI** (next to Random Mix), with the typed features (Instant Playlist, AI Chat, lyrics, album from a description, artist / Find Path searches) as search boxes, and the AudioMuse entries on track / artist / album information pages. Pick a player at the top right first. Refreshing a result page won't queue the same playlist twice. |
 | **Material Skin** | Full feature set. The settings status panel is theme-aware (works on light and dark). |
 | **iPeng** | Full feature set. |
 | **Squeezer (Android)** | Full feature set, including text-input items. |

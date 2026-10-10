@@ -2,6 +2,8 @@
 
 **Settings → Plugins → AudioMuse-AI.**
 
+<p align="center"><img src="images/settings.png" alt="The AudioMuse-AI settings page with the server status panel" width="640"></p>
+
 | Setting | What it does |
 |---|---|
 | **Server URL** | Where AudioMuse-AI is running. `http://` is auto-prefixed; trailing slashes are stripped. |
