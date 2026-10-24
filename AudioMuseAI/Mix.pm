@@ -12,9 +12,13 @@ package Plugins::AudioMuseAI::Mix;
 #   soft filters (relaxed when too few candidates survive):
 #     - don't repeat an artist within N tracks
 #     - don't repeat an album within N tracks (Various Artists exempt)
-#   variety:
-#     - shuffle the best 2 x $want candidates, so the same seed doesn't
-#       always produce the same order
+#   variety (configurable):
+#     - keep only the closest candidates (the top mix_similarity_keep_pct%%
+#       of the pool by similarity) — the pool is bounded by proximity, not
+#       by a fixed count
+#     - shuffle the surviving candidates
+#     - output a mix of high-rated (rating >= mix_rated_min_stars) and the
+#       rest, in the configured mix_rated_ratio split
 #
 # Rows are the plugin's normal result rows ({ item_id, title, author, ... })
 # already resolved to local Lyrion track ids (Plugin::_localizeRows).
@@ -39,6 +43,13 @@ sub _num {
 	return $default unless defined $v && $v =~ /\A\s*-?\d+\s*\z/;
 	$v = int($v);
 	return $v < 0 ? 0 : $v;
+}
+
+# Boolean pref that defaults to on when never configured (undef).
+sub _on {
+	my ($name, $default) = @_;
+	my $v = $prefs->get($name);
+	return defined $v ? ($v ? 1 : 0) : ($default ? 1 : 0);
 }
 
 sub _lines {
@@ -170,6 +181,11 @@ sub settings {
 		filter_genres    => $prefs->get('mix_filter_genres') ? 1 : 0,
 		match_all_genres => $prefs->get('mix_match_all_genres') ? 1 : 0,
 		shuffle          => $prefs->get('mix_shuffle') ? 1 : 0,
+		filter_similarity=> _on('mix_filter_similarity', 1),
+		similarity_keep_pct => _num('mix_similarity_keep_pct', 70),
+		use_rating_ratio => _on('mix_use_rating_ratio', 1),
+		rated_ratio      => _num('mix_rated_ratio', 50),
+		rated_min_stars  => _num('mix_rated_min_stars', 3),
 	};
 }
 
@@ -181,6 +197,103 @@ sub durationOk {
 	return 0 if $cfg->{min_duration} && $secs && $secs < $cfg->{min_duration};
 	return 0 if $cfg->{max_duration} && $secs && $secs > $cfg->{max_duration};
 	return 1;
+}
+
+# Normalised closeness (0..1, higher = more similar) of a result row, when
+# the server gives a usable figure. AudioMuse returns `distance` (cosine
+# distance, so similarity = 1 - distance) from similar_tracks / alchemy and
+# `similarity` directly from clap_search / sem_grove. Rows with neither are
+# undef (no constraint) — e.g. sonic fingerprint rows.
+sub _closeness {
+	my $row = shift;
+	if (defined $row->{similarity}) { return $row->{similarity} + 0 }
+	if (defined $row->{distance})   { return 1 - ($row->{distance} + 0) }
+	return undef;
+}
+
+# Lyrion track rating on the 0..100 scale; undef / 0 = unrated.
+sub _rating {
+	my $track = shift;
+	my $r = eval { $track->rating };
+	return defined $r ? $r + 0 : 0;
+}
+
+# Bulk-load Lyrion ratings (0..100) for a set of track objects, keyed by
+# track id. One TrackPersistent query per key type (urlmd5, then
+# musicbrainz_id) instead of one per track. Statistics off or no persistent
+# row => rating 0.
+sub _ratingsMap {
+	my @tracks = @_;
+	my %rating;
+	return \%rating unless @tracks && $main::STATISTICS;
+	my (%byUrl, %byMbid);
+	for my $t (@tracks) {
+		my $id = eval { $t->id } or next;
+		my $um = eval { $t->urlmd5 };
+		my $mb = eval { $t->musicbrainz_id };
+		if ($um) { $byUrl{$um} = $id }
+		elsif ($mb) { $byMbid{$mb} = $id }
+	}
+	for my $pair ([urlmd5 => \%byUrl], [musicbrainz_id => \%byMbid]) {
+		my ($col, $map) = @$pair;
+		next unless %$map;
+		eval {
+			my $rs = Slim::Schema->rs('TrackPersistent')
+				->search_rs({ $col => { -in => [ keys %$map ] } });
+			while (my $p = $rs->next) {
+				my $r = eval { $p->rating };
+				my $id = $map->{ $p->$col };
+				$rating{$id} = defined $r ? $r + 0 : 0 if $id;
+			}
+		};
+	}
+	return \%rating;
+}
+
+# Rating threshold from a configured star count (3 stars = 60 on 0..100).
+sub _ratedThreshold {
+	my ($cfg) = @_;
+	my $stars = $cfg->{rated_min_stars} || 3;
+	$stars = 1 if $stars < 1;
+	$stars = 5 if $stars > 5;
+	return $stars * 20;
+}
+
+# Merge two (already shuffled) lists so the result holds a target percentage
+# of the first list, filling any shortfall from the second. Returns an arrayref.
+sub _ratioMix {
+	my ($first, $second, $want, $ratioPct) = @_;
+	$want ||= scalar(@$first) + scalar(@$second);
+	my $r = $ratioPct / 100;
+	$r = 1 if $r > 1;
+	$r = 0 if $r < 0;
+	my $firstTarget = int($want * $r + 0.5);
+	my $secondTarget = $want - $firstTarget;
+	my $nf = $firstTarget > scalar(@$first) ? scalar(@$first) : $firstTarget;
+	my $ns = $secondTarget > scalar(@$second) ? scalar(@$second) : $secondTarget;
+	# Fill any shortfall from the other list so the result still reaches $want.
+	my $need = $want - $nf - $ns;
+	if ($need > 0) {
+		if ($nf < scalar(@$first)) {
+			my $add = $need < (scalar(@$first) - $nf) ? $need : (scalar(@$first) - $nf);
+			$nf += $add;
+			$need -= $add;
+		}
+		if ($need > 0 && $ns < scalar(@$second)) {
+			my $add = $need < (scalar(@$second) - $ns) ? $need : (scalar(@$second) - $ns);
+			$ns += $add;
+		}
+	}
+	my @out;
+	my ($i, $j) = (0, 0);
+	while (@out < $want && ($i < $nf || $j < $ns)) {
+		my $takeFirst;
+		if ($i >= $nf) { $takeFirst = 0 }
+		elsif ($j >= $ns) { $takeFirst = 1 }
+		else { $takeFirst = ($i / $nf <= $j / $ns) ? 1 : 0 }
+		push @out, $takeFirst ? $first->[$i++] : $second->[$j++];
+	}
+	return \@out;
 }
 
 # Apply the filters.
@@ -230,8 +343,8 @@ sub apply {
 	}
 
 	my $va = _variousArtistsId();
-	my (@usable, @spacedArtist, @spacedAlbum);
-	my %count = map { $_ => 0 } qw(duration xmas excluded genre artist album);
+	my @base;
+	my %count = map { $_ => 0 } qw(duration xmas excluded genre similarity artist album);
 	for my $r (@$rows) {
 		my $t = $r->{_obj} || eval { Slim::Schema->find('Track', $r->{item_id}) } or next;
 		$r->{_obj} = $t;
@@ -245,16 +358,54 @@ sub apply {
 			if (($accept && !_inGroup(\@g, $accept, $cfg->{match_all_genres}))
 				|| ($reject && _inGroup(\@g, $reject, 0))) { $count{genre}++; next }
 		}
-		if ($cfg->{no_repeat_artist} && defined $a && exists $artistAt{$a}
-			&& $pos - $artistAt{$a} <= $cfg->{no_repeat_artist}) {
+		push @base, $r;
+	}
+
+	# Adaptive closeness filter: keep the top `similarity_keep_pct`% of the
+	# candidates by closeness (the pool is bounded by proximity, not by a
+	# fixed count). Rows with no closeness figure (e.g. sonic fingerprint)
+	# are always kept. This is scale-agnostic — it works the same for the
+	# cosine distance of similar_tracks and the raw CLAP similarity.
+	my @pass;
+	if ($cfg->{filter_similarity} && @base) {
+		my $keepPct = $cfg->{similarity_keep_pct};
+		my @withClose = grep { defined _closeness($_) } @base;
+		my $cutoff;
+		if (@withClose) {
+			my @sorted = sort { _closeness($b) <=> _closeness($a) } @withClose;
+			my $keep = int(@sorted * $keepPct / 100 + 0.5);
+			$keep = @sorted if $keep > @sorted;
+			$cutoff = $keep > 0 ? _closeness($sorted[$keep - 1]) : undef;
+		}
+		for my $r (@base) {
+			my $c = _closeness($r);
+			if (!defined $c) { push @pass, $r; next }
+			if (defined $cutoff && $c >= $cutoff) { push @pass, $r }
+			else { $count{similarity}++ }
+		}
+	}
+	else {
+		@pass = @base;
+	}
+
+	# Artist / album spacing (soft; relaxed when too few survive).
+	my (@usable, @spacedArtist, @spacedAlbum);
+	my (%aAt, %alAt);
+	$pos = 0;
+	for my $r (@pass) {
+		my $t = $r->{_obj};
+		my $a  = _artistId($t);
+		my $al = _albumId($t);
+		if ($cfg->{no_repeat_artist} && defined $a && exists $aAt{$a}
+			&& $pos - $aAt{$a} <= $cfg->{no_repeat_artist}) {
 			$count{artist}++; push @spacedArtist, $r; next;
 		}
 		if ($cfg->{no_repeat_album} && defined $al && (!defined $a || $a != $va)
-			&& exists $albumAt{$al} && $pos - $albumAt{$al} <= $cfg->{no_repeat_album}) {
+			&& exists $alAt{$al} && $pos - $alAt{$al} <= $cfg->{no_repeat_album}) {
 			$count{album}++; push @spacedAlbum, $r; next;
 		}
-		$artistAt{$a} = $pos if defined $a;
-		$albumAt{$al} = $pos if defined $al;
+		$aAt{$a} = $pos if defined $a;
+		$alAt{$al} = $pos if defined $al;
 		push @usable, $r;
 		$pos++;
 	}
@@ -267,13 +418,27 @@ sub apply {
 		}
 	}
 
+	# Shuffle the survivors.
 	if ($shuffle && @usable > 1) {
-		my $pool = $want ? 2 * $want : scalar @usable;
-		@usable = @usable[0 .. $pool - 1] if @usable > $pool;
 		for (my $i = $#usable; $i > 0; $i--) {
 			my $j = int rand($i + 1);
 			@usable[$i, $j] = @usable[$j, $i];
 		}
+	}
+
+	# Rating ratio: split the shuffled pool into high-rated and the rest,
+	# then interleave them in the configured ratio.
+	if ($cfg->{use_rating_ratio} && $want && @usable > 1) {
+		my $thr = _ratedThreshold($cfg);
+		my %ratings = %{ _ratingsMap(map { $_->{_obj} } @usable) };
+		my (@rated, @unrated);
+		for my $r (@usable) {
+			my $t = $r->{_obj};
+			my $rating = $ratings{ eval { $t->id } };
+			$rating = _rating($t) unless defined $rating;
+			push @{ $rating >= $thr ? \@rated : \@unrated }, $r;
+		}
+		@usable = @{ _ratioMix(\@rated, \@unrated, $want, $cfg->{rated_ratio}) };
 	}
 	@usable = @usable[0 .. $want - 1] if $want && @usable > $want;
 

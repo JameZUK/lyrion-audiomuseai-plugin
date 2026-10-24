@@ -50,7 +50,7 @@ use constant {
 	# Tracks added per auto-extend (menu dynamic mode and native DSTM).
 	EXTEND_BATCH        => 10,
 	# Hard cap on any single AudioMuse request size.
-	FETCH_MAX           => 200,
+	FETCH_MAX           => 30000,
 };
 
 my $log = Slim::Utils::Log->addLogCategory({
@@ -118,6 +118,14 @@ sub initPlugin {
 		mix_shuffle          => 1,     # shuffle the best 2 x N candidates
 		mix_strict_similarity => 0,    # AudioMuse mood + radius similarity
 		history_max          => HISTORY_MAX,
+		# --- Mix variety (closeness + rated/unrated blend) ---
+		mix_filter_similarity => 1,    # keep only close matches
+		mix_similarity_keep_pct => 70, # keep the closest 70% of the pool
+		mix_use_rating_ratio  => 1,    # blend rated / unrated tracks
+		mix_rated_ratio       => 50,   # % high-rated in the mix
+		mix_rated_min_stars   => 3,    # "rated" bucket threshold (stars)
+		# --- Candidate pool size (0 = library size) ---
+		mix_fetch_pool        => 0,     # 0 = use the library size
 		# --- Don't Stop The Music ---
 		dstm_tracks          => 10,    # tracks added per top-up
 		dstm_seed_tracks     => 1,     # seeds blended for each top-up
@@ -3605,20 +3613,24 @@ sub _dedupePath {
 	return [ @$mid, $last ];
 }
 
-# Request size for a fresh load: a little headroom so de-duplicating
-# (same song, other copy) still leaves a full playlist.
-sub _loadN {
-	my $n = _count(shift) + 10;
-	return $n > FETCH_MAX ? FETCH_MAX : $n;
+# Size of the candidate pool to ask AudioMuse for on each generation call.
+# mix_fetch_pool = 0 (default) means "use the library size": request as many
+# candidates as there are tracks, so the sample spans the whole library (and
+# its analyzed subset) rather than only the top-N closest. This grows
+# automatically as the library / analysis grows. A positive value overrides it.
+sub _fetchPool {
+	my $n = $prefs->get('mix_fetch_pool');
+	return $n > 0 ? $n : Slim::Schema->rs('Track')->count();
 }
 
-# How many to ask AudioMuse for so $want survive the filters.
+# Request size for a fresh load: the configured candidate pool.
+sub _loadN {
+	return _fetchPool();
+}
+
+# How many to ask AudioMuse for so $want survive the filters: the pool.
 sub _oversample {
-	my $want = shift || 10;
-	my $n = $want * 3 + 10;
-	$n = 30 if $n < 30;
-	$n = FETCH_MAX if $n > FETCH_MAX;
-	return $n;
+	return _fetchPool();
 }
 
 # The last few track ids in the queue (newest last) — seeds for extends.

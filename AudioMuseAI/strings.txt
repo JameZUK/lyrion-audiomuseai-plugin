@@ -594,6 +594,48 @@ PLUGIN_AUDIOMUSEAI_MIX_STRICT_SIMILARITY
 PLUGIN_AUDIOMUSEAI_MIX_STRICT_SIMILARITY_DESC
 	EN	For "similar" mixes, also ask AudioMuse to match the mood and stay within its similarity radius. Tighter results, fewer surprises.
 
+PLUGIN_AUDIOMUSEAI_SECTION_VARIETY
+	EN	Mix variety
+
+PLUGIN_AUDIOMUSEAI_SECTION_VARIETY_DESC
+	EN	Bias the mix toward the seed while varying the selection: keep only close matches, then split between your rated and unrated tracks.
+
+PLUGIN_AUDIOMUSEAI_MIX_FILTER_SIMILARITY
+	EN	Keep only close matches
+
+PLUGIN_AUDIOMUSEAI_MIX_FILTER_SIMILARITY_DESC
+	EN	Restrict the candidate pool to tracks similar enough to the seed (cosine similarity above the threshold below), instead of always taking the closest N. The pool is bounded by closeness, not by a fixed count.
+
+PLUGIN_AUDIOMUSEAI_MIX_SIMILARITY_KEEP_PCT
+	EN	Keep closest
+
+PLUGIN_AUDIOMUSEAI_MIX_SIMILARITY_KEEP_PCT_DESC
+	EN	How much of the candidate pool survives the closeness filter: keep the top N% by similarity (70 = keep the closest 70%). The pool is bounded by proximity, not by a fixed count, so the same seed gives a different mix each time.
+
+PLUGIN_AUDIOMUSEAI_MIX_FETCH_POOL
+	EN	Candidate pool size
+
+PLUGIN_AUDIOMUSEAI_MIX_FETCH_POOL_DESC
+	EN	How many candidates AudioMuse is asked to return before the closeness filter and rating blend pick the playlist. 0 (default) = use the library size, so the sample spans the whole library and grows automatically as it changes; AudioMuse returns only its analyzed tracks.
+
+PLUGIN_AUDIOMUSEAI_MIX_USE_RATING_RATIO
+	EN	Blend rated / unrated tracks
+
+PLUGIN_AUDIOMUSEAI_MIX_USE_RATING_RATIO_DESC
+	EN	Split the mix between your high-rated tracks and the rest (unrated or lower-rated) in the ratio below, so new music surfaces alongside your favourites.
+
+PLUGIN_AUDIOMUSEAI_MIX_RATED_RATIO
+	EN	% high-rated tracks
+
+PLUGIN_AUDIOMUSEAI_MIX_RATED_RATIO_DESC
+	EN	Percentage of the mix taken from high-rated tracks (the rest is filled from unrated / lower-rated). 50 = half and half.
+
+PLUGIN_AUDIOMUSEAI_MIX_RATED_MIN_STARS
+	EN	High-rated = at least
+
+PLUGIN_AUDIOMUSEAI_MIX_RATED_MIN_STARS_DESC
+	EN	Star threshold for the "rated" bucket (3 = 3 stars and above).
+
 PLUGIN_AUDIOMUSEAI_HISTORY_MAX
 	EN	Don't replay a song within
 

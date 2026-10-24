@@ -25,6 +25,8 @@ sub prefs {
 		mix_filter_xmas mix_exclude_artists mix_exclude_albums mix_filter_genres
 		mix_genre_groups mix_use_track_genre mix_match_all_genres mix_shuffle
 		mix_strict_similarity history_max
+		mix_filter_similarity mix_similarity_keep_pct mix_use_rating_ratio
+		mix_rated_ratio mix_rated_min_stars mix_fetch_pool
 		dstm_tracks dstm_seed_tracks dstm_seed_strict dstm_lastmix_fallback
 		ui_mode
 	));
@@ -76,6 +78,8 @@ sub handler {
 		mix_min_duration     => [0, 3600], mix_max_duration    => [0, 7200],
 		history_max          => [10, 5000],
 		dstm_tracks          => [1, 50],   dstm_seed_tracks    => [1, 10],
+		mix_rated_ratio      => [0, 100],  mix_rated_min_stars => [1, 5],
+		mix_fetch_pool       => [0, 30000],
 	);
 	for my $k (keys %range) {
 		next unless defined $params->{"pref_$k"};
@@ -85,6 +89,15 @@ sub handler {
 		$n = $lo if $n < $lo;
 		$n = $hi if $n > $hi;
 		$params->{"pref_$k"} = int($n);
+	}
+	# Similarity keep percent: integer 0..100 (default 70) — the share of the
+	# candidate pool that stays after the closeness filter.
+	if (defined $params->{pref_mix_similarity_keep_pct}) {
+		my $v = $params->{pref_mix_similarity_keep_pct};
+		$v = ($v =~ /\A\s*(\d+)\s*\z/) ? $1 : 70;
+		$v = 0 if $v < 0;
+		$v = 100 if $v > 100;
+		$params->{pref_mix_similarity_keep_pct} = int($v);
 	}
 	for my $k (qw(mix_exclude_artists mix_exclude_albums mix_genre_groups)) {
 		next unless defined $params->{"pref_$k"};

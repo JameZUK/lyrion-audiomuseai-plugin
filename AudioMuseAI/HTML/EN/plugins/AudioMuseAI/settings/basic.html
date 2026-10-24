@@ -264,6 +264,52 @@ document.addEventListener('DOMContentLoaded', function () {
 		<input type="checkbox" name="pref_mix_strict_similarity" value="1" [% IF prefs.mix_strict_similarity %]checked="checked"[% END %] />
 	</div>
 </div>
+<div class="prefsLine am-section-divider">
+	<div class="prefsLabel am-section-title">[% "PLUGIN_AUDIOMUSEAI_SECTION_VARIETY" | string %]</div>
+	<div class="prefsDesc">[% "PLUGIN_AUDIOMUSEAI_SECTION_VARIETY_DESC" | string %]</div>
+</div>
+<div class="prefsLine">
+	<div class="prefsLabel">[% "PLUGIN_AUDIOMUSEAI_MIX_FILTER_SIMILARITY" | string %]</div>
+	<div class="prefsDesc">[% "PLUGIN_AUDIOMUSEAI_MIX_FILTER_SIMILARITY_DESC" | string %]</div>
+	<div class="prefsValue">
+		<input type="checkbox" name="pref_mix_filter_similarity" value="1" [% IF prefs.mix_filter_similarity %]checked="checked"[% END %] />
+	</div>
+</div>
+<div class="prefsLine">
+	<div class="prefsLabel">[% "PLUGIN_AUDIOMUSEAI_MIX_SIMILARITY_KEEP_PCT" | string %]</div>
+	<div class="prefsDesc">[% "PLUGIN_AUDIOMUSEAI_MIX_SIMILARITY_KEEP_PCT_DESC" | string %]</div>
+	<div class="prefsValue">
+		<input type="number" name="pref_mix_similarity_keep_pct" value="[% prefs.mix_similarity_keep_pct | html %]" min="0" max="100" />
+	</div>
+</div>
+<div class="prefsLine">
+	<div class="prefsLabel">[% "PLUGIN_AUDIOMUSEAI_MIX_FETCH_POOL" | string %]</div>
+	<div class="prefsDesc">[% "PLUGIN_AUDIOMUSEAI_MIX_FETCH_POOL_DESC" | string %]</div>
+	<div class="prefsValue">
+		<input type="number" name="pref_mix_fetch_pool" value="[% prefs.mix_fetch_pool | html %]" min="0" max="30000" />
+	</div>
+</div>
+<div class="prefsLine">
+	<div class="prefsLabel">[% "PLUGIN_AUDIOMUSEAI_MIX_USE_RATING_RATIO" | string %]</div>
+	<div class="prefsDesc">[% "PLUGIN_AUDIOMUSEAI_MIX_USE_RATING_RATIO_DESC" | string %]</div>
+	<div class="prefsValue">
+		<input type="checkbox" name="pref_mix_use_rating_ratio" value="1" [% IF prefs.mix_use_rating_ratio %]checked="checked"[% END %] />
+	</div>
+</div>
+<div class="prefsLine">
+	<div class="prefsLabel">[% "PLUGIN_AUDIOMUSEAI_MIX_RATED_RATIO" | string %]</div>
+	<div class="prefsDesc">[% "PLUGIN_AUDIOMUSEAI_MIX_RATED_RATIO_DESC" | string %]</div>
+	<div class="prefsValue">
+		<input type="number" name="pref_mix_rated_ratio" value="[% prefs.mix_rated_ratio | html %]" min="0" max="100" />
+	</div>
+</div>
+<div class="prefsLine">
+	<div class="prefsLabel">[% "PLUGIN_AUDIOMUSEAI_MIX_RATED_MIN_STARS" | string %]</div>
+	<div class="prefsDesc">[% "PLUGIN_AUDIOMUSEAI_MIX_RATED_MIN_STARS_DESC" | string %]</div>
+	<div class="prefsValue">
+		<input type="number" name="pref_mix_rated_min_stars" value="[% prefs.mix_rated_min_stars | html %]" min="1" max="5" />
+	</div>
+</div>
 <div class="prefsLine">
 	<div class="prefsLabel">[% "PLUGIN_AUDIOMUSEAI_HISTORY_MAX" | string %]</div>
 	<div class="prefsDesc">[% "PLUGIN_AUDIOMUSEAI_HISTORY_MAX_DESC" | string %]</div>
