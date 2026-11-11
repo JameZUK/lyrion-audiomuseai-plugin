@@ -444,6 +444,21 @@ PLUGIN_AUDIOMUSEAI_INFO_EXPLORE_TRACK
 PLUGIN_AUDIOMUSEAI_EXPLORE_UNAVAILABLE
 	EN	The hyperbolic index isn't ready on your AudioMuse-AI server (v3.3+, needs an analysis run), or this track has no projection yet.
 
+PLUGIN_AUDIOMUSEAI_NEEDS_VERSION
+	EN	%s needs AudioMuse-AI %s or newer, and your AudioMuse-AI is %s. Update AudioMuse-AI (the Flask and all Worker containers together) to use it.
+
+PLUGIN_AUDIOMUSEAI_NEEDS_VERSION_OLDER
+	EN	%s needs AudioMuse-AI %s or newer, and your AudioMuse-AI is older than that. Update AudioMuse-AI (the Flask and all Worker containers together) to use it.
+
+PLUGIN_AUDIOMUSEAI_FEATURE_ALBUM
+	EN	Album Creation
+
+PLUGIN_AUDIOMUSEAI_FEATURE_HYPERBOLIC
+	EN	Hyperbolic Explorer
+
+PLUGIN_AUDIOMUSEAI_FEATURE_JOURNEY
+	EN	Hyperbolic Path
+
 PLUGIN_AUDIOMUSEAI_MENU_SONIC_MOODS
 	EN	Sonic moods (analysed clusters)
 

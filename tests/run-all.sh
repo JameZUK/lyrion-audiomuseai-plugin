@@ -46,6 +46,9 @@ run '08-mix       (mix filters, seeds, audiomuse:// URLs, DSTM-only mode)' \
 run '09-weblink   (Open Music Map link: loopback host -> server address)' \
     "PERL5LIB='$STUBS' perl '$HERE/09-weblink.pl'"
 
+run '10-version   (features too new for the AudioMuse-AI version)' \
+    "PERL5LIB='$STUBS' perl '$HERE/10-version.pl'"
+
 run '04-live    (against $AUDIOMUSE_URL — skipped if no token)' \
     "bash '$HERE/04-live.sh'"
 

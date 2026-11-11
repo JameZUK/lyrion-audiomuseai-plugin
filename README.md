@@ -4,7 +4,7 @@ A plugin for [Lyrion Music Server](https://lyrion.org) that brings [AudioMuse-AI
 
 > You already control playback from a Lyrion controller; this plugin makes AudioMuse-AI's playlists tap-reachable from the same place, instead of a separate web UI.
 
-Requires a running [AudioMuse-AI](https://github.com/NeptuneHub/AudioMuse-AI) instance. Plugin **v0.6.0+ targets AudioMuse-AI v3.x** (tested against v3.6.3); the core features still work on v2.x, the newer ones (album creation, hyperbolic explore, sonic moods, lyric themes, concept steering) need v3.
+Requires a running [AudioMuse-AI](https://github.com/NeptuneHub/AudioMuse-AI) instance. Plugin **v0.6.0+ targets AudioMuse-AI v3.x** (tested against v3.6.3); the core features still work on v2.x, the newer ones (album creation, hyperbolic explore, sonic moods, lyric themes, concept steering) need v3 (Hyperbolic Explorer v3.3.0+, Album Creation v3.6.2+), and the plugin says when your AudioMuse-AI is too old for one.
 
 ## Install
 

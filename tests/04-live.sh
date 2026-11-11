@@ -202,6 +202,9 @@ fi
 # --- 13. v3.x endpoints the plugin now uses ---
 body=$(curl -sS -H "$H" "$URL/api/models")
 assert_keys '/api/models: returns {models}' "$body" models
+# The plugin reads app_version to tell users when AudioMuse is too old.
+body=$(curl -sS -H "$H" "$URL/api/version")
+assert_keys '/api/version: returns {app_version}' "$body" app_version
 body=$(curl -sS -H "$H" "$URL/api/mood_centroids")
 assert_keys '/api/mood_centroids: has happy + sad clusters' "$body" happy sad
 body=$(curl -sS -H "$H" "$URL/api/anchors")

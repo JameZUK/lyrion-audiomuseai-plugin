@@ -29,7 +29,7 @@ use Slim::Menu::TrackInfo;
 use Slim::Menu::AlbumInfo;
 
 use constant {
-	VERSION             => '0.7.0',
+	VERSION             => '0.7.1',
 	HEALTHCHECK_DELAY   => 5,
 	# Cap search-result menus to keep the UI navigable on hardware
 	# controllers; AudioMuse can return hundreds of tracks for prolific
@@ -557,6 +557,19 @@ sub _healthCheck {
 	Plugins::AudioMuseAI::API::ping(
 		sub {
 			$log->info('AudioMuse-AI reachable: ' . ($prefs->get('url') || 'unset'));
+			# Log the version, so a log shows when AudioMuse is too old for
+			# some features (/api/version itself arrived in v3.6.2).
+			Plugins::AudioMuseAI::API::version(
+				sub {
+					my $v = ref($_[0]) eq 'HASH' ? ($_[0]->{app_version} // '?') : '?';
+					$log->info('AudioMuse-AI version: ' . _safeText($v));
+				},
+				sub {
+					return unless (shift // '') =~ /\b404\b/;
+					$log->warn('AudioMuse-AI is older than v3.6.2: Album Creation needs v3.6.2 or newer, '
+						. 'Hyperbolic Explorer v3.3.0 and Hyperbolic Path v3.5.0');
+				},
+			);
 			# Pre-warm the CLAP text-search model so the first Instant
 			# Playlist / Mood / Top Queries tap doesn't pay the model
 			# load cost (typically several seconds). Fire-and-forget;
@@ -1934,7 +1947,8 @@ sub _albumCreate {
 			# 404 = seed not analysed / too few neighbours.
 			return _notify($request, string('PLUGIN_AUDIOMUSEAI_ALBUM_UNAVAILABLE'))
 				if $err =~ /\b400\b/;
-			return _notify($request, string('PLUGIN_AUDIOMUSEAI_ALBUM_NO_SEED'))
+			return _featureMissing($request, 'album',
+				sub { _notify($request, string('PLUGIN_AUDIOMUSEAI_ALBUM_NO_SEED')) })
 				if $err =~ /\b404\b/;
 			_notifyError($request, $err);
 		},
@@ -1981,6 +1995,8 @@ sub _exploreRun {
 			my $err = shift // '';
 			return _notify($request, string('PLUGIN_AUDIOMUSEAI_EXPLORE_UNAVAILABLE'))
 				if $err =~ /\b400\b/;
+			return _featureMissing($request, 'hyperbolic', sub { _notifyError($request, $err) })
+				if $err =~ /\b404\b/;
 			_notifyError($request, $err);
 		},
 	);
@@ -2451,7 +2467,12 @@ sub _findPathExecute {
 	if ($method eq 'hyperbolic') {
 		# length counts both endpoints.
 		Plugins::AudioMuseAI::API::hyperbolic_journey(
-			_amId($start), _amId($end), FINDPATH_MAX_STEPS + 2, $ok, $err);
+			_amId($start), _amId($end), FINDPATH_MAX_STEPS + 2, $ok, sub {
+				my $e = shift // '';
+				return _featureMissing($request, 'journey', sub { $err->($e) })
+					if $e =~ /\b404\b/;
+				$err->($e);
+			});
 	}
 	else {
 		Plugins::AudioMuseAI::API::find_path(
@@ -3215,6 +3236,47 @@ sub _notifyError {
 	} else {
 		_notify($request, string('PLUGIN_AUDIOMUSEAI_GENERIC_ERROR') . " $err");
 	}
+}
+
+# Features that need a newer AudioMuse-AI than the plugin's minimum. An
+# AudioMuse without the feature answers 404 (no such endpoint), which would
+# otherwise read as "this song isn't analysed" (issue #11).
+use constant FEATURE_MIN => {
+	album      => ['v3.6.2', 'PLUGIN_AUDIOMUSEAI_FEATURE_ALBUM'],
+	hyperbolic => ['v3.3.0', 'PLUGIN_AUDIOMUSEAI_FEATURE_HYPERBOLIC'],
+	journey    => ['v3.5.0', 'PLUGIN_AUDIOMUSEAI_FEATURE_JOURNEY'],
+};
+
+# 'v3.6.2' -> 3006002 (undef if there is no version number in it).
+sub _verNum {
+	my ($maj, $min, $pat) = (shift // '') =~ /(\d+)\.(\d+)(?:\.(\d+))?/ or return undef;
+	return $maj * 1_000_000 + $min * 1_000 + ($pat // 0);
+}
+
+# AudioMuse answered 404 to a $feature endpoint. Ask its version: older than
+# the feature needs -> say which version it needs; otherwise run $otherwise
+# (the feature's usual "not found" message). /api/version arrived in v3.6.2,
+# so a 404 there means an older AudioMuse — too old for Album Creation, and
+# the hyperbolic endpoints never answer 404 themselves, so for them the 404
+# already means the endpoint is missing.
+sub _featureMissing {
+	my ($request, $feature, $otherwise) = @_;
+	my ($min, $nameKey) = @{ FEATURE_MIN->{$feature} };
+	Plugins::AudioMuseAI::API::version(
+		sub {
+			my $v    = ref($_[0]) eq 'HASH' ? ($_[0]->{app_version} // '') : '';
+			my $have = _verNum($v);
+			return $otherwise->() unless defined $have && $have < _verNum($min);
+			_notify($request, sprintf(string('PLUGIN_AUDIOMUSEAI_NEEDS_VERSION'),
+				string($nameKey), $min, _safeText($v)));
+		},
+		sub {
+			my $e = shift // '';
+			return $otherwise->() unless $e =~ /\b404\b/;
+			_notify($request, sprintf(string('PLUGIN_AUDIOMUSEAI_NEEDS_VERSION_OLDER'),
+				string($nameKey), $min));
+		},
+	);
 }
 
 sub _notifyErrorWithStatus {
