@@ -21,6 +21,8 @@ tests/
 ├── 07-web.pl      Default web UI adapter: page registration, menu ->
 │                  OPML conversion, search boxes, repeat guard, context-
 │                  menu run page whitelist
+├── 09-weblink.pl  "Open Music Map" link: a loopback url pref becomes
+│                  the Lyrion server's address, other hosts unchanged
 ├── 06-lms-e2e.py  MANUAL: drives a real player on a real Lyrion with the
 │                  plugin installed (muted; state saved and restored) —
 │                  every menu/generator + 8 long auto-extend runs, checks

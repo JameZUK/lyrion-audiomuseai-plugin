@@ -77,7 +77,7 @@ jazz with viola | +viola x3, -drums, female vocals
 | Item | What it does |
 |---|---|
 | **Server Status / Admin** | Show active task, show last task, trigger analysis, trigger clustering, **cancel running task**. "Busy / unavailable" errors elsewhere include live status inline. |
-| **Open Music Map** | Opens the AudioMuse-AI web UI on controllers that honour Jive `weblink` (Material, web UI, iPeng); shows the URL as text otherwise. |
+| **Open Music Map** | Opens the Music Map page (`/map`) of the AudioMuse-AI web UI on controllers that honour Jive `weblink` (Material, web UI, iPeng); shows the URL as text otherwise. If the server URL setting uses `localhost` (or another loopback address), the link uses the Lyrion server's address instead, so it works from other devices. |
 
 ## Two shortcuts that skip the menu
 

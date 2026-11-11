@@ -7,6 +7,7 @@ use base qw(Slim::Plugin::Base);
 use Slim::Control::Request;
 use Slim::Control::Jive;
 use Slim::Utils::Log;
+use Slim::Utils::Network;
 use Slim::Utils::Prefs;
 use Slim::Utils::Strings qw(string cstring);
 use Slim::Utils::Timers;
@@ -677,7 +678,7 @@ sub _topMenu {
 		['audiomuseai', 'menu_status']);
 
 	# Open Music Map: weblink-bearing item with action.go fallback.
-	my $url = ($prefs->get('url') || '') . '/';
+	my $url = _mapUrl();
 	push @menu, {
 		text    => string('PLUGIN_AUDIOMUSEAI_MENU_OPEN_MAP'),
 		weblink => $url,
@@ -2720,7 +2721,7 @@ sub _runClustering {
 
 sub _openMap {
 	my $request = shift;
-	my $url = ($prefs->get('url') || '') . '/';
+	my $url = _mapUrl();
 	_notifyLines($request, [
 		string('PLUGIN_AUDIOMUSEAI_MENU_OPEN_MAP') . ':',
 		$url,
@@ -2958,6 +2959,29 @@ sub _normalizeUrl {
 	$u = "http://$u" unless $u =~ m{^https?://}i;
 	$u =~ s{/+$}{};
 	return $u;
+}
+
+# URL of the AudioMuse-AI web UI for the user's browser. The url pref is
+# how Lyrion reaches AudioMuse, and is often http://localhost:8000 when
+# both run on the same machine. In a browser on another device, localhost
+# is that device, so a loopback host is swapped for the Lyrion server's
+# own address. Scheme, port and path are kept; other hosts are unchanged.
+sub _webUrl {
+	my $u = _normalizeUrl($prefs->get('url'));
+	if ($u =~ m{^(https?://)(?:localhost|127(?:\.\d+){3}|\[::1\]|0\.0\.0\.0)((?::\d+)?(?:/.*)?)$}i) {
+		my ($scheme, $rest) = ($1, $2);
+		my $addr = Slim::Utils::Network::serverAddr();
+		if ($addr && $addr !~ /^127\./) {
+			$addr = "[$addr]" if $addr =~ /:/;
+			$u = $scheme . $addr . $rest;
+		}
+	}
+	return "$u/";
+}
+
+# The Music Map page of the AudioMuse-AI web UI.
+sub _mapUrl {
+	return _webUrl() . 'map';
 }
 
 sub _count {
